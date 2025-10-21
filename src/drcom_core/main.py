@@ -70,7 +70,7 @@ class DrcomCore:
         self.dhcp_address = os.getenv("DHCP_SERVER")
         self.primary_dns = os.getenv("PRIMARY_DNS")
         self.host_ip = self._detect_campus_ip()
-        self.bind_ip = os.getenv("HOST_IP", "0.0.0.0")
+        self.bind_ip = self.host_ip
         # self.bind_ip = os.getenv("BIND_IP", "0.0.0.0") Use this line if you need to bind to all interfaces.
         # User credentials.
         self.username = os.getenv("USERNAME")
