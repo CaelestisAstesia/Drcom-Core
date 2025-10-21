@@ -94,7 +94,7 @@ if nic_name != "":
     bind_ip = bind_nic()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+# s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind((bind_ip, 61440))
 s.settimeout(3)
 
