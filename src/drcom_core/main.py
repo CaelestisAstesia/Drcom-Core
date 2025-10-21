@@ -51,7 +51,13 @@ class DrcomCore:
             print(f"Automatic detection error: {e}")
 
         print("Auotomatic detection failed, please set HOST_IP in .env file.")
-        return os.getenv("HOST_IP")
+        fallback_ip = os.getenv("HOST_IP")
+        if fallback_ip:
+            print(f"Using HOST_IP from .env: {fallback_ip}")
+            return fallback_ip
+
+        print("Automatic detection error : Can't get campus IP from .env file")
+        sys.exit("Exiting.Please set HOST_IP in .env file.")
 
     def _load_config(self):
         # Load configuration settings from an environment.
@@ -82,7 +88,7 @@ class DrcomCore:
             os.getenv("MAC").replace("-", "").replace(":", "")
         )  # Get 16-based MAC address.
         self.mac_address = (
-            int(self.mac_address, 16) if self.mac_address else 0
+            # int(self.mac_address, 16) if self.mac_address else 0
         )  # Convert to 10-based integer.
         self.adapter_num = bytes.fromhex(os.getenv("ADAPTERNUM", "01"))
         self.ipdog = bytes.fromhex(os.getenv("IPDOG", "01"))
@@ -94,6 +100,29 @@ class DrcomCore:
         self.ror_status = os.getenv("ROR_STATUS", "False").lower() in ("true", "1", "t")
 
         print("All Configurations loaded successfully.")
+
+        # Protocol Constants for Challenge
+        CHALLENGE_REQ_CODE = b"\x01\x02"
+        CHALLENGE_REQ_SUFFIX = b"\x09"
+        CHALLENGE_RESP_CODE = b"\x02"
+
+        SALT_START_INDEX = 4
+        SALT_END_INDEX = 8
+        # Constants End
+
+    def challenge(self):
+        # Send challenge request to the server and receive the salt.
+        print("Sending challenge request to the server.")
+        random_number = time.time() + random.randint(0xF, 0xFF)
+        random_packet = struct.pack(
+            "<H", int(random_number) % 0xFFFF
+        )  # Make sure it's within 2 bytes (<65535)
+        challenge_packet = (
+            self.CHALLENGE_REQ_CODE
+            + random_packet
+            + self.CHALLENGE_REQ_SUFFIX
+            + b"\x00" * 15
+        )
 
 
 # main function test version
