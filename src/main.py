@@ -17,8 +17,10 @@ logging.basicConfig(
     ],
 )
 # 可以单独为 core 模块设置更低的级别，例如 DEBUG
-logging.getLogger("src.drcom_core.core").setLevel(logging.DEBUG)
+# logging.getLogger("src.drcom_core.core").setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)  # 获取 main 模块的 logger
+
 # --- 日志配置结束 ---
 
 # 打印调试信息 (可选)

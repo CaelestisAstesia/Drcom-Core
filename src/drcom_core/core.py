@@ -13,14 +13,22 @@ from typing import Optional, Tuple
 import netifaces  # 依赖 netifaces 来获取网络接口信息
 from dotenv import load_dotenv
 
+# 导入Challenge模块
 from ..drcom_protocol.challenge import (
     receive_challenge_response,
     send_challenge_request,
 )
 
+# 导入Login模块
+from ..drcom_protocol.login import (
+    _build_login_packet,
+    parse_login_response,
+    send_login_request,
+)
+
 # --- 配置日志记录 ---
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # 保持 DEBUG 级别
+logger.setLevel(logging.DEBUG)
 # (Handler 配置由 main.py 完成)
 # --- 日志配置结束 ---
 
@@ -305,105 +313,91 @@ class DrcomCore:
         self.salt = b""
         return False
 
-    # TODO: 实现登录包构建逻辑 (需要使用 self.mac_address 这个整数)
-    def _build_login_packet(self) -> bytes:
-        """根据当前配置和获取到的 salt 构建登录 (Code 0x03) 数据包"""
-        # --- 这里需要实现登录包构建，确保使用 self.mac_address (整数) ---
-        logger.debug("正在构建登录数据包 (占位符)...")
-        if not self.salt:
-            logger.error("无法构建登录包：Salt 为空。")
-            raise ValueError("Salt is missing for building login packet.")
-        # ... (实际的构建逻辑) ...
-        # 异或操作示例: xor_result = some_int_value ^ self.mac_address
-        # 转换回 bytes: binascii.unhexlify(format(xor_result, '012x'))[-6:]
-        return b"\x03..."  # <--- 需要替换!
-
-    # TODO: 实现登录逻辑
     def perform_login(self, max_retries: int = 3) -> bool:
-        """执行登录认证过程。"""
-        # (此方法逻辑基本不变，确保调用 _build_login_packet)
+        """
+        执行登录认证过程。
+        调用 login.py 中的函数来构建、发送和解析登录包。
+        """
         logger.info("正在执行登录认证...")
         if not self.salt:
-            logger.error("登录失败：未获取到 Salt。请先执行 Challenge。")
+            logger.error("登录失败：未获取到 Salt。请先成功执行 Challenge。")
             return False
 
         retries = 0
         while retries < max_retries:
             try:
-                login_packet = self._build_login_packet()  # 调用构建函数
-                logger.info(f"第 {retries + 1} 次尝试发送登录请求...")
-                self.core_socket.sendto(
-                    login_packet, (self.server_address, self.drcom_port)
+                # 1. 构建登录数据包
+                login_packet = _build_login_packet(
+                    username=self.username,
+                    password=self.password,
+                    salt=self.salt,
+                    mac_address=self.mac_address,
+                    host_ip=self.host_ip,
+                    host_name=self.host_name,
+                    host_os=self.host_os,
+                    primary_dns=self.primary_dns,
+                    dhcp_server=self.dhcp_address,
+                    control_check_status=self.control_check_status,
+                    adapter_num=self.adapter_num,
+                    ipdog=self.ipdog,
+                    auth_version=self.auth_version,
+                    ror_status=self.ror_status,
                 )
+
+                # 2. 发送登录数据包
+                logger.info(f"第 {retries + 1} 次尝试发送登录请求...")
+                send_login_request(
+                    self.core_socket,
+                    self.server_address,
+                    self.drcom_port,
+                    login_packet,
+                )
+
+                # 3. 接收登录响应
                 self.core_socket.settimeout(5)
                 response_data, server_addr = self.core_socket.recvfrom(1024)
-                logger.debug(f"收到登录响应: {response_data.hex()}")
 
-                if (
-                    response_data
-                    and server_addr[0] == self.server_address
-                    and response_data.startswith(b"\x04")
-                ):
-                    logger.info("登录成功！")
-                    self.auth_info = response_data[23:39]
-                    logger.debug(f"获取到 Auth Info (Tail): {self.auth_info.hex()}")
+                # 4. 解析登录响应
+                is_success, auth_info, error_code, message = parse_login_response(
+                    response_data, self.server_address, server_addr[0]
+                )
+
+                # 5. 根据解析结果处理
+                if is_success:
+                    self.auth_info = auth_info
                     self.login_success = True
-                    return True
+                    logger.info(f"登录成功！ ({message})")
+                    return True  # 登录成功，退出函数
                 else:
-                    error_code = response_data[4] if len(response_data) > 4 else None
-                    logger.error(
-                        f"登录失败。服务器响应: {response_data.hex()} (错误码: {hex(error_code) if error_code is not None else 'N/A'})"
-                    )
-                    # 添加对常见错误码的解释
-                    if error_code == 0x01:
-                        logger.error(
-                            " -> 错误原因：账号正在使用中或认证 MAC/IP 不匹配。"
-                        )
-                    elif error_code == 0x03:
-                        logger.error(" -> 错误原因：账号或密码错误。")
-                    elif error_code == 0x04:
-                        logger.error(" -> 错误原因：账号余额不足或流量/时长超限。")
-                    elif error_code == 0x05:
-                        logger.error(" -> 错误原因：账号被冻结或暂停使用。")
-                    elif error_code == 0x07:
-                        logger.error(" -> 错误原因：IP 地址不匹配。")
-                    elif error_code == 0x0B:
-                        logger.error(" -> 错误原因：MAC 地址不匹配。")
-                    elif error_code == 0x14:
-                        logger.error(" -> 错误原因：登录 IP 数量超限。")
-                    elif error_code == 0x15:
-                        logger.error(" -> 错误原因：客户端版本不匹配或账号被禁用。")
-                    elif error_code == 0x16:
-                        logger.error(" -> 错误原因：IP 和 MAC 地址同时绑定错误。")
-                    elif error_code == 0x17:
-                        logger.error(" -> 错误原因：服务器要求使用 DHCP 获取 IP。")
-                    # 对于密码错误等情况，不需要重试
+                    logger.error(f"登录失败: {message}")
                     if error_code in [0x03, 0x04, 0x05, 0x07, 0x0B, 0x16, 0x17]:
-                        return False  # 直接返回失败
-                    else:  # 其他错误可以尝试重试
-                        pass  # 继续循环
+                        logger.info("此错误无需重试，停止登录尝试。")
+                        return False  # 无需重试的错误，直接返回失败
+                    else:
+                        logger.info("将进行重试...")  # 其他错误，继续循环
 
+            except ValueError as ve:  # 捕获构建错误
+                logger.error(f"构建登录包时发生错误: {ve}")
+                return False
             except socket.timeout:
-                logger.warning(f"登录第 {retries + 1} 次尝试超时。正在重试...")
+                logger.warning(f"登录第 {retries + 1} 次尝试接收响应超时。正在重试...")
             except socket.error as e:
                 logger.error(
                     f"登录第 {retries + 1} 次尝试时发生 Socket 错误: {e}。正在重试..."
                 )
                 time.sleep(1)
-            except ValueError as e:  # 捕获 _build_login_packet 可能抛出的异常
-                logger.error(f"构建登录包时出错: {e}")
-                return False  # 构建失败，无法继续
             except Exception as e:
                 logger.error(f"登录第 {retries + 1} 次尝试时发生意外错误: {e}")
                 logger.debug(traceback.format_exc())
 
             retries += 1
             if retries < max_retries:
-                wait_time = random.uniform(1, 2)
+                wait_time = random.uniform(1, 3)
                 logger.debug(f"等待 {wait_time:.2f} 秒后重试登录...")
                 time.sleep(wait_time)
 
         logger.error("登录失败 (超过最大重试次数)。")
+        self.login_success = False
         return False
 
     # TODO: 实现心跳包构建和发送逻辑
