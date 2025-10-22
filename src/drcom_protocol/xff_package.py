@@ -17,3 +17,5 @@ foo = struct.pack('!H', int(time.time()) % 0xFFFF)
 # 构建最终的包：
 packet = b'\xff' + calculated_md5_bytes + b'\x00\x00\x00' + tail + foo
 packet_hex = binascii.hexlify(packet).decode()
+# 在早期版本，该包末尾有填充b'\x00\x00\x00\x00'，但在我本地跑以太网的过程中没有看到这个填充，反倒是在时间戳之后看到了别的字节，据说可能是
+# 随机填充的？
