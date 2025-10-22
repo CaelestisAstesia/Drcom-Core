@@ -10,9 +10,8 @@ from typing import Optional, Tuple  # 引入类型提示
 # 从同一目录下的 constants 模块导入常量 (相对导入)
 from . import constants
 
-# 获取当前模块的 logger 实例，名称为 'src.drcom_protocol.challenge'
+# 获取当前模块的 logger 实例
 logger = logging.getLogger(__name__)
-# 设置日志级别，使其可以记录 DEBUG 信息 (最终输出级别由 main.py 控制)
 logger.setLevel(logging.DEBUG)
 
 
