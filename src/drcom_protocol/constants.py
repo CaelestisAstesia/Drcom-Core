@@ -1,8 +1,93 @@
+# src/drcom_protocol/constants.py
+
 # Protocol Constants for Challenge
+
+# Challenge Constants Start
 CHALLENGE_REQ_CODE = b"\x01\x02"
 CHALLENGE_REQ_SUFFIX = b"\x09"
 CHALLENGE_RESP_CODE = b"\x02"
-
+CHALLENGE_REQ_PADDING_LENGTH = 15
 SALT_START_INDEX = 4
 SALT_END_INDEX = 8
-# Constants End
+# Challenge Constants End
+
+# Protocol Constants for Login (Code 0x03)
+LOGIN_REQ_CODE = b"\x03\x01"
+LOGIN_PACKET_HEADER_LENGTH = 4  # Code(2) + Type(1) + Length(1)
+LOGIN_PACKET_LENGTH_OFFSET = 20  # 包长度 = 用户名长度 + 这个偏移
+
+MD5A_SALT_PREFIX = (
+    b"\x03\x01"  # 用于计算 MD5A 的盐前缀 (似乎和 MD5_SALT_PREFIX 重复了，确认一下)
+)
+MD5B_SALT_PREFIX = b"\x01"  # 用于计算 MD5B 的盐前缀
+MD5B_SALT_SUFFIX = b"\x00" * 4  # 用于计算 MD5B 的盐后缀
+MD5C_SUFFIX = b"\x14\x00\x07\x0b"  # 用于计算 MD5C (Checksum1) 的后缀
+CHECKSUM1_LENGTH = 8  # Checksum1 (MD5C) 的长度
+
+CHECKSUM2_SUFFIX = b"\x01\x26\x07\x11\x00\x00"  # 用于计算 Checksum2 的后缀
+CHECKSUM2_INIT_VALUE = 1234
+CHECKSUM2_MULTIPLIER = 1968
+
+AUTH_EXT_DATA_CODE = b"\x02"
+AUTH_EXT_DATA_LEN = b"\x0c"
+AUTH_EXT_DATA_OPTION = b"\x00\x00"
+
+# Lenths of various padded fields
+USERNAME_PADDING_LENGTH = 36
+HOSTNAME_PADDING_LENGTH = 32
+HOSTOS_PADDING_LENGTH = 32
+HOSTOS_PADDING_SUFFIX_LENGTH = 96
+IP_ADDR_PADDING_LENGTH = 12
+MAC_XOR_PADDING_LENGTH = 6
+
+# Default Values for various fields
+IPDOG_SEPARATOR = b"\x00" * 4
+SECONDARY_DNS_DEFAULT = b"\x00\x00\x00\x00"
+WINS_SERVER_DEFAULT = b"\x00" * 8
+AUTO_LOGOUT_DEFAULT = b"\x00"
+BROADCAST_MODE_DEFAULT = b"\x00"
+LOGIN_PACKET_ENDING = b"\xe9\x13"  # 末尾未知字节
+
+# OS Information (Optional, can be modified as needed)
+# OS_VERSION_INFO_SIZE = b"\x94\x00\x00\x00"
+# OS_MAJOR_VERSION = b"\x0a\x00\x00\x00"
+# OS_MINOR_VERSION = b"\x00\x00\x00\x00"
+# OS_BUILD_NUMBER = b"\x58\x66\x00\x00"
+# OS_PLATFORM_ID = b"\x02\x00\x00\x00"
+
+# Login Response
+LOGIN_RESP_SUCCESS_CODE = 0x04
+LOGIN_RESP_FAIL_CODE = 0x05
+AUTH_INFO_START_INDEX = 23
+AUTH_INFO_END_INDEX = 39
+ERROR_CODE_INDEX = 4
+AUTH_INFO_LENGTH = 16
+
+# Login Error Codes
+ERROR_CODE_IN_USE = 0x01
+ERROR_CODE_SERVER_BUSY = 0x02
+ERROR_CODE_WRONG_PASS = 0x03
+ERROR_CODE_INSUFFICIENT = 0x04
+ERROR_CODE_FROZEN = 0x05
+ERROR_CODE_WRONG_IP = 0x07
+ERROR_CODE_WRONG_MAC = 0x0B
+ERROR_CODE_TOO_MANY_IP = 0x14
+ERROR_CODE_WRONG_VERSION = 0x15
+ERROR_CODE_WRONG_IP_MAC = 0x16
+ERROR_CODE_FORCE_DHCP = 0x17
+
+# Logout Constants Start
+LOGOUT_REQ_CODE = b"\x06"
+LOGOUT_TYPE = b"\x01"
+SUCCESS_RESP_CODE = b"\x04"
+# Logout Constants End
+
+
+MISC_CODE = b"\x07"  # 心跳等杂项
+KEEP_ALIVE_CLIENT_CODE = b"\xff"  # 客户端心跳
+
+# Other Constants
+MD5_SALT_PREFIX = b"\x03\x01"  # 用于计算 MD5A 的盐前缀
+USERNAME_PADDING_LENGTH = 36  # 用户名填充长度
+AUTH_INFO_LENGTH = 16  # 登录成功后返回的 Auth Info 长度
+MAC_XOR_PADDING_LENGTH = 6  # MAC 地址异或计算涉及的字节数和结果长度
