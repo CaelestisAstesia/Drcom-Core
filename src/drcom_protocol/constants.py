@@ -1,6 +1,38 @@
 # src/drcom_protocol/constants.py
 
-# Protocol Constants for Challenge
+# Core Logic Constants
+DEFAULT_SERVER_IP = "10.100.61.3"
+DEFAULT_DRCOM_PORT = 61440
+DEFAULT_CAMPUS_IP_PREFIX = "49."
+DEFAULT_AUTO_DETECT_INTERFACE = True
+
+DEFAULT_HOST_NAME = "Windows 10 PC"
+DEFAULT_HOST_OS = "Windows 10"
+DEFAULT_DHCP_SERVER = "0.0.0.0"
+DEFAULT_PRIMARY_DNS = "114.114.114.114"
+
+# Socket Timeouts
+TIMEOUT_CHALLENGE = 3  # Challenge 请求/响应超时
+TIMEOUT_LOGIN = 5  # Login 响应超时
+TIMEOUT_LOGOUT = 2  # Logout 响应超时 (通常较短)
+TIMEOUT_KEEP_ALIVE = 3  # Keep-Alive 响应超时
+
+# Retry Logic
+MAX_RETRIES_CHALLENGE = 5
+MAX_RETRIES_LOGIN = 3
+MAX_RETRIES_LOGOUT_CHALLENGE = 1  # 登出前尝试获取 salt 的次数
+
+# 对应 LOGIN_RESP_FAIL_CODE (0x05) 时的具体错误
+NO_RETRY_ERROR_CODES = [
+    ERROR_CODE_WRONG_PASS,
+    ERROR_CODE_INSUFFICIENT,
+    ERROR_CODE_FROZEN,
+    ERROR_CODE_WRONG_IP,
+    ERROR_CODE_WRONG_MAC,
+    ERROR_CODE_WRONG_IP_MAC,
+    ERROR_CODE_FORCE_DHCP,
+]
+# Core Logic Constants End
 
 # Challenge Constants Start
 CHALLENGE_REQ_CODE = b"\x01\x02"
@@ -16,9 +48,7 @@ LOGIN_REQ_CODE = b"\x03\x01"
 LOGIN_PACKET_HEADER_LENGTH = 4  # Code(2) + Type(1) + Length(1)
 LOGIN_PACKET_LENGTH_OFFSET = 20  # 包长度 = 用户名长度 + 这个偏移
 
-MD5A_SALT_PREFIX = (
-    b"\x03\x01"  # 用于计算 MD5A 的盐前缀 (似乎和 MD5_SALT_PREFIX 重复了，确认一下)
-)
+MD5A_SALT_PREFIX = b"\x03\x01"  # 用于计算 MD5A 的盐前缀
 MD5B_SALT_PREFIX = b"\x01"  # 用于计算 MD5B 的盐前缀
 MD5B_SALT_SUFFIX = b"\x00" * 4  # 用于计算 MD5B 的盐后缀
 MD5C_SUFFIX = b"\x14\x00\x07\x0b"  # 用于计算 MD5C (Checksum1) 的后缀
