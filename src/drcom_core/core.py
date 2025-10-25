@@ -42,7 +42,6 @@ from ..drcom_protocol.logout import (
 
 # 获取当前模块的 logger 实例
 logger = logging.getLogger(__name__)
-# 注意：日志级别和处理器通常在 main.py 配置
 
 
 class DrcomCore:
