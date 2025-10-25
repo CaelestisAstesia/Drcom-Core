@@ -13,7 +13,6 @@ from . import constants
 
 # 获取当前模块的 logger 实例
 logger = logging.getLogger(__name__)
-# 日志级别和处理器通常在 main.py 配置
 
 
 def _build_logout_packet(
@@ -45,7 +44,7 @@ def _build_logout_packet(
     """
     logger.debug("开始构建登出数据包...")
 
-    # --- 参数校验 ---
+    # 参数校验
     if not auth_info or len(auth_info) != constants.AUTH_INFO_LENGTH:
         raise ValueError(
             f"无效的 Auth Info (Tail)，长度应为 {constants.AUTH_INFO_LENGTH}。"
@@ -53,7 +52,7 @@ def _build_logout_packet(
     if not salt or len(salt) != 4:
         raise ValueError("无效的 Salt，长度应为 4。")
 
-    # --- 编码转换 ---
+    # 编码转换
     try:
         username_bytes = username.encode("utf-8", "ignore")
         password_bytes = password.encode("utf-8", "ignore")
@@ -61,7 +60,7 @@ def _build_logout_packet(
         logger.error(f"用户名或密码编码失败: {e}")
         raise ValueError("用户名或密码编码失败") from e
 
-    # --- 开始构建数据包 ---
+    # 开始构建数据包
     packet = b""
 
     # 1. 包头和长度
@@ -85,14 +84,14 @@ def _build_logout_packet(
     packet += username_bytes.ljust(constants.USERNAME_PADDING_LENGTH, b"\x00")
     logger.debug("  步骤 3: 添加用户名 (填充)")
 
-    # 4. ControlStatus & AdapterNum
+    # 4. 添加 ControlStatus 和 AdapterNum
     packet += control_check_status
     packet += adapter_num
     logger.debug(
         f"  步骤 4: 添加 ControlStatus ({control_check_status.hex()}) 和 AdapterNum ({adapter_num.hex()})"
     )
 
-    # 5. MAC 地址异或 (与登录包相同)
+    # 5. MAC 地址异或
     mac_xor_md5_part = md5a[: constants.MAC_XOR_PADDING_LENGTH]
     try:
         md5_part_int = int.from_bytes(mac_xor_md5_part, byteorder="big")
@@ -121,7 +120,7 @@ def _build_logout_packet(
     return packet
 
 
-def send_logout_request(  # 函数名改为更明确的 logout
+def send_logout_request(
     sock: socket.socket, server_address: str, drcom_port: int, packet: bytes
 ) -> None:
     """
@@ -169,7 +168,7 @@ def parse_logout_response(
         f"开始解析登出响应: {response_data.hex() if response_data else 'None'}"
     )
 
-    # 情况 1: 未收到响应 (这是登出时的常见且正常情况)
+    # 情况 1: 未收到响应
     if not response_data:
         logger.info("未收到登出响应 (正常情况，视为客户端已尝试登出)。")
         return True, "未收到响应 (正常情况)"  # 视为成功

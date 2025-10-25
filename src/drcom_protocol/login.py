@@ -86,7 +86,7 @@ def _build_login_packet(
         ValueError: 如果输入参数无效 (如 salt 长度错误, IP 格式错误等)。
     """
     logger.debug("开始构建登录数据包...")
-    # --- 参数校验 ---
+    # 参数校验
     if not salt or len(salt) != 4:
         logger.error("无法构建登录包：Salt 无效或缺失。")
         raise ValueError("无效的 Salt，无法构建登录包。")
@@ -98,7 +98,7 @@ def _build_login_packet(
             f"AUTH_VERSION 长度不是 2 字节 ({auth_version.hex()})，可能导致认证失败。"
         )
 
-    # --- 编码转换 ---
+    # 编码转换
     try:
         pwd_bytes = password.encode("utf-8", "ignore")
         usr_bytes = username.encode("utf-8", "ignore")
@@ -108,7 +108,7 @@ def _build_login_packet(
         logger.error(f"用户名、密码、主机名或操作系统标识编码失败: {e}")
         raise ValueError("必要的字符串参数编码失败") from e
 
-    # --- 开始构建数据包 ---
+    # 开始构建数据包
     data = b""
 
     # 1. 包头和长度
@@ -118,7 +118,7 @@ def _build_login_packet(
     logger.debug(f"步骤 1: 包头和长度 = {header.hex()}")
 
     # 2. MD5_A
-    md5a_data = constants.MD5_SALT_PREFIX + salt + pwd_bytes  # 使用常量
+    md5a_data = constants.MD5_SALT_PREFIX + salt + pwd_bytes
     md5a = hashlib.md5(md5a_data).digest()
     data += md5a
     logger.debug(f"步骤 2: 添加 MD5_A = {md5a.hex()}")
