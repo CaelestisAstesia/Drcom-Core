@@ -26,11 +26,11 @@ from ..drcom_protocol.login import (
     send_login_request,
 )
 
-# --- 配置日志记录 ---
+# 配置日志记录
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 # (Handler 配置由 main.py 完成)
-# --- 日志配置结束 ---
+# 日志配置结束
 
 
 class DrcomCore:
@@ -38,7 +38,7 @@ class DrcomCore:
 
     def __init__(self) -> None:
         """初始化 Dr.com-Core 类。"""
-        logger.info("Dr.Com-Core 正在初始化...")
+        logger.info("Dr.Com-Core 正在初始化。")
         try:
             self._load_config()  # 加载所有配置 (包含 IP 和 MAC 检测)
             self._init_socket()  # 初始化网络套接字
@@ -54,7 +54,7 @@ class DrcomCore:
 
     def _init_socket(self) -> None:
         """初始化 UDP 网络套接字"""
-        logger.info("正在初始化网络套接字...")
+        logger.info("正在初始化网络套接字。")
         try:
             self.core_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.core_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -75,7 +75,7 @@ class DrcomCore:
         自动检测符合条件的校园网接口的 IP 地址和 MAC 地址。
 
         Args:
-            campus_ip_prefix: 校园网 IP 地址的前缀 (例如 "49." 或 "10.")。
+            campus_ip_prefix: 校园网 IP 地址的前缀 (例如 "49.")。
 
         Returns:
             Tuple[Optional[str], Optional[str]]: 包含 IP 地址和 MAC 地址的元组 (ip, mac_address)。
@@ -112,7 +112,7 @@ class DrcomCore:
                             logger.debug(
                                 f"在接口 '{interface}' 上找到 MAC 地址: {detected_mac}"
                             )
-                            break  # 找到 MAC 地址即可
+                            break  # 找到 MAC 地址
 
                 # 3. 如果 IP 和 MAC 都找到了，返回结果
                 if detected_ip and detected_mac:
@@ -140,27 +140,30 @@ class DrcomCore:
         else:
             logger.warning(f".env 文件未找到: {env_path}，将仅依赖环境变量。")
 
-        # --- 加载服务器地址和端口 ---
-        self.server_address: Optional[str] = os.getenv("SERVER_IP")
+        # 加载服务器地址和端口
+        self.server_address: Optional[str] = os.getenv("SERVER_IP", "10.100.61.3")
         self.drcom_port: int = int(os.getenv("DRCOM_PORT", "61440"))
 
-        # --- 加载校园网 IP 前缀 ---
+        # 加载校园网 IP 前缀
         self.campus_ip_prefix: str = os.getenv("CAMPUS_IP_PREFIX", "49.")
 
-        # --- 优先自动检测 IP 和 MAC ---
-        detected_ip, detected_mac = self._detect_campus_interface_info(
-            self.campus_ip_prefix
-        )
+        # 自动检测 IP 和 MAC
+        if os.getenv("AUTO_DETECT_CAMPUS_INTERFACE", "True").lower() in (
+            "true",
+            "1",
+            "t",
+        ):
+            detected_ip, detected_mac = self._detect_campus_interface_info(
+                self.campus_ip_prefix
+            )
 
-        # --- 处理 IP 地址 ---
+        # 处理 IP 地址
         if detected_ip:
             logger.info(f"使用自动检测到的 IP 地址: {detected_ip}")
             self.host_ip = detected_ip
         else:
             # 如果自动检测 IP 失败，尝试从环境变量回退
-            logger.warning(
-                "自动检测 IP 失败，尝试从 .env 文件或环境变量中获取 HOST_IP..."
-            )
+            logger.warning("尝试从 .env 文件或环境变量中获取 HOST_IP。")
             fallback_ip = os.getenv("HOST_IP")
             if fallback_ip:
                 logger.info(f"使用 .env 文件或环境变量中的 HOST_IP: {fallback_ip}")
@@ -173,7 +176,7 @@ class DrcomCore:
         # 将 socket 绑定的 IP 设为最终获取到的 IP
         self.bind_ip: str = self.host_ip
 
-        # --- 处理 MAC 地址 ---
+        # 处理 MAC 地址
         final_mac_str: Optional[str] = None
         if detected_mac:
             logger.info(f"使用自动检测到的 MAC 地址: {detected_mac}")
@@ -195,7 +198,7 @@ class DrcomCore:
                 )  # 使用配置的值，并去除分隔符
             else:
                 logger.warning(
-                    "未能从自动检测或 .env 中获取 MAC 地址。某些认证可能失败。"
+                    "未能从自动检测或 .env 中获取 MAC 地址。请确保网络适配器正常或手动配置 MAC 地址。"
                 )
                 final_mac_str = None  # 或者 '000000000000'
 
@@ -213,15 +216,15 @@ class DrcomCore:
         else:
             logger.warning("MAC 地址最终为 0。")
 
-        # --- 加载用户凭证 ---
+        # 加载用户凭证
         self.username: Optional[str] = os.getenv("USERNAME")
         self.password: Optional[str] = os.getenv("PASSWORD")
 
-        # --- 加载主机信息 ---
+        # 加载主机信息
         self.host_name: str = os.getenv("HOST_NAME", "Drcom_Python_Client")
         self.host_os: str = os.getenv("HOST_OS", "Python")
 
-        # --- 加载其他协议相关的 bytes 类型配置 ---
+        # 加载其他协议相关的 bytes 类型配置
         self.adapter_num: bytes = bytes.fromhex(os.getenv("ADAPTERNUM", "01"))
         self.ipdog: bytes = bytes.fromhex(os.getenv("IPDOG", "01"))
         self.auth_version: bytes = bytes.fromhex(os.getenv("AUTH_VERSION", "0a00"))
@@ -232,23 +235,22 @@ class DrcomCore:
             os.getenv("KEEP_ALIVE_VERSION", "dc02")
         )
 
-        # --- 加载布尔类型的 ROR 状态 ---
+        # 加载布尔类型的 ROR 状态
         self.ror_status: bool = os.getenv("ROR_STATUS", "False").lower() in (
             "true",
             "1",
             "t",
         )
 
-        # --- 加载可能需要的其他网络配置 ---
+        # 加载可能需要的其他网络配置
         self.dhcp_address: str = os.getenv("DHCP_SERVER", "0.0.0.0")
         self.primary_dns: str = os.getenv("PRIMARY_DNS", "114.114.114.114")
 
-        # --- 配置项校验 ---
+        # 配置项校验
         required_configs = {
             "服务器地址 (SERVER_IP)": self.server_address,
             "用户名 (USERNAME)": self.username,
             "密码 (PASSWORD)": self.password,
-            # MAC 地址现在有自动检测，但如果最终为 0 仍需注意
             "MAC 地址 (自动检测或配置)": self.mac_address != 0,
         }
         missing_configs = [
@@ -273,7 +275,6 @@ class DrcomCore:
 
     def perform_challenge(self, max_retries: int = 5) -> bool:
         """执行 Challenge 过程，从服务器获取 salt。"""
-        # (此方法逻辑保持不变，使用 logger 记录日志)
         logger.info("正在执行 Challenge 过程...")
         retries = 0
         while retries < max_retries:
@@ -374,16 +375,16 @@ class DrcomCore:
                         logger.info("此错误无需重试，停止登录尝试。")
                         return False  # 无需重试的错误，直接返回失败
                     else:
-                        logger.info("将进行重试...")  # 其他错误，继续循环
+                        logger.info("将进行重试。")  # 其他错误，继续循环
 
             except ValueError as ve:  # 捕获构建错误
                 logger.error(f"构建登录包时发生错误: {ve}")
                 return False
             except socket.timeout:
-                logger.warning(f"登录第 {retries + 1} 次尝试接收响应超时。正在重试...")
+                logger.warning(f"登录第 {retries + 1} 次尝试接收响应超时。正在重试。")
             except socket.error as e:
                 logger.error(
-                    f"登录第 {retries + 1} 次尝试时发生 Socket 错误: {e}。正在重试..."
+                    f"登录第 {retries + 1} 次尝试时发生 Socket 错误: {e}。正在重试。"
                 )
                 time.sleep(1)
             except Exception as e:
@@ -509,28 +510,27 @@ class DrcomCore:
 
     def run(self) -> None:
         """启动认证和心跳的主循环"""
-        # (此方法逻辑保持不变)
-        logger.info("启动 Dr.Com 核心认证流程...")
+        logger.info("启动 Dr.Com 核心认证流程。")
         try:
             while True:
                 if not self.login_success:
-                    logger.info("尝试进行认证...")
+                    logger.info("尝试进行认证。")
                     if self.perform_challenge():
                         if self.perform_login():
                             self.start_keep_alive()
                         else:
-                            logger.error("登录失败，将在 30 秒后重试...")
+                            logger.error("登录失败，将在 30 秒后重试。")
                             time.sleep(30)
                     else:
-                        logger.error("Challenge 失败，将在 60 秒后重试...")
+                        logger.error("Challenge 失败，将在 60 秒后重试。")
                         time.sleep(60)
                 else:
-                    logger.warning("心跳意外终止，将在 10 秒后尝试重新认证...")
+                    logger.warning("心跳意外终止，将在 10 秒后尝试重新认证。")
                     self.login_success = False
                     time.sleep(10)
 
         except KeyboardInterrupt:
-            logger.info("用户请求退出...")
+            logger.info("用户请求退出。")
         except Exception as e:
             logger.critical(f"主循环发生严重错误: {e}")
             logger.critical(traceback.format_exc())
