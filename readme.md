@@ -1,4 +1,4 @@
-# Drcom-Core: 现代化 Dr.Com 认证客户端
+# Drcom-Core: 现代化 Dr.Com 认证核心
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
