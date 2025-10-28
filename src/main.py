@@ -13,7 +13,7 @@ log_formatter = logging.Formatter(
 
 # 配置根 logger
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 # 添加控制台输出 handler
