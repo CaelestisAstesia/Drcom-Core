@@ -1,0 +1,5 @@
+python-dotenv
+netifaces
+pytest
+pytest-mock
+pytest-cov
