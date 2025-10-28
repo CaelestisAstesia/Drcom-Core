@@ -15,7 +15,7 @@ from . import constants
 logger = logging.getLogger(__name__)
 
 
-def _build_logout_packet(
+def build_logout_packet(
     username: str,
     password: str,
     salt: bytes,

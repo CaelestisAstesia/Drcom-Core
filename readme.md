@@ -1,4 +1,4 @@
-# Drcom-Core: 现代化的 Dr.Com 认证客户端
+# Drcom-Core: 现代化 Dr.Com 认证客户端
 
 ## 项目简介
 
