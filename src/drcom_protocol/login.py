@@ -44,7 +44,7 @@ def _calculate_checksum(data: bytes) -> bytes:
     return struct.pack("<I", ret)
 
 
-def _build_login_packet(
+def build_login_packet(
     username: str,
     password: str,
     salt: bytes,

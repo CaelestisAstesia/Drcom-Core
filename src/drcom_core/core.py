@@ -2,8 +2,8 @@
 """
 Dr.COM 认证核心逻辑模块。
 
-负责加载配置、初始化网络、执行认证流程 (Challenge -> Login)、
-维持心跳 (Keep Alive) 以及处理登出。
+负责加载配置、初始化网络、执行认证流程、
+维持心跳以及处理登出。
 """
 
 import logging
@@ -25,19 +25,23 @@ from ..drcom_protocol.challenge import (
     receive_challenge_response,
     send_challenge_request,
 )
+from ..drcom_protocol.keep_alive import (
+    build_keep_alive1_packet,
+    build_keep_alive2_packet,
+    parse_keep_alive1_response,
+    parse_keep_alive2_response,
+)
 from ..drcom_protocol.login import (
-    _build_login_packet,
+    build_login_packet,
     parse_login_response,
 )
 from ..drcom_protocol.login import (
-    send_login_request as send_login_request_login,  # 别名区分
+    send_login_request as send_login_request_login,
 )
 from ..drcom_protocol.logout import (
-    _build_logout_packet,
+    build_logout_packet,
     parse_logout_response,
-)
-from ..drcom_protocol.logout import (
-    send_logout_request as send_logout_request,  # 复用发送函数但别名区分
+    send_logout_request,
 )
 
 # 获取当前模块的 logger 实例
@@ -62,6 +66,9 @@ class DrcomCore:
         auth_info (bytes): 登录成功后获取的认证信息 (Tail)，用于心跳。
         login_success (bool): 当前是否处于登录成功状态。
         core_socket (socket.socket): 用于与服务器通信的 UDP 套接字。
+        keep_alive_serial_num (int): Keep Alive 2 (07 包) 的当前序列号。
+        keep_alive_tail (bytes): Keep Alive 2 (07 包) 的当前 tail 值。
+        _ka2_initialized (bool): 标记 Keep Alive 2 初始化序列是否已完成。
     """
 
     def __init__(self) -> None:
@@ -71,6 +78,11 @@ class DrcomCore:
         self.auth_info: bytes = b""
         self.login_success: bool = False
         self.core_socket: Optional[socket.socket] = None  # 初始化为 None
+
+        # 初始化 Keep Alive 2 状态
+        self.keep_alive_serial_num: int = 0
+        self.keep_alive_tail: bytes = b"\x00\x00\x00\x00"  # 初始 tail 通常是 0
+        self._ka2_initialized: bool = False  # 标记 KA2 初始化序列是否完成
 
         try:
             self._load_config()  # 加载所有配置
@@ -181,7 +193,7 @@ class DrcomCore:
         """
         logger.info("正在加载配置...")
 
-        # --- 加载 .env 文件 ---
+        # 加载 .env 文件
         env_path = Path(__file__).resolve().parent.parent.parent / ".env"
         if env_path.exists():
             logger.debug(f"发现 .env 文件: {env_path}")
@@ -189,7 +201,7 @@ class DrcomCore:
         else:
             logger.warning(f".env 文件未找到: {env_path}，将仅依赖环境变量。")
 
-        # --- 加载基本网络配置 ---
+        # 加载基本网络配置
         self.server_address: str = os.getenv("SERVER_IP", constants.DEFAULT_SERVER_IP)
         self.drcom_port: int = int(
             os.getenv("DRCOM_PORT", constants.DEFAULT_DRCOM_PORT)
@@ -198,7 +210,7 @@ class DrcomCore:
             "CAMPUS_IP_PREFIX", constants.DEFAULT_CAMPUS_IP_PREFIX
         )
 
-        # --- 自动检测或加载 IP 和 MAC ---
+        # 自动检测或加载 IP 和 MAC
         detected_ip: Optional[str] = None
         detected_mac_str: Optional[str] = None  # 带分隔符的 MAC
         auto_detect_enabled: bool = (
@@ -220,7 +232,7 @@ class DrcomCore:
             logger.info(f"使用自动检测到的 IP 地址: {self.host_ip}")
         else:
             fallback_ip: Optional[str] = os.getenv("HOST_IP")
-            if fallback_ip:
+            if fallback_ip and fallback_ip != "0.0.0.0":
                 self.host_ip = fallback_ip
                 logger.info(f"使用环境变量或 .env 中的 HOST_IP: {self.host_ip}")
             else:
@@ -240,7 +252,6 @@ class DrcomCore:
         else:
             mac_from_env: Optional[str] = os.getenv("MAC")
             if mac_from_env:
-                # 兼容带分隔符和不带分隔符的格式
                 final_mac_str_no_sep = mac_from_env.replace("-", "").replace(
                     constants.MAC_SEPARATOR, ""
                 )
@@ -252,7 +263,7 @@ class DrcomCore:
         self.mac_address: int = 0
         if final_mac_str_no_sep:
             try:
-                # 确保是有效的十六进制字符串
+                # 校验格式和长度
                 if len(final_mac_str_no_sep) == 12 and all(
                     c in "0123456789abcdefABCDEF" for c in final_mac_str_no_sep
                 ):
@@ -263,21 +274,22 @@ class DrcomCore:
             except ValueError as e:
                 logger.error(
                     f"无效的 MAC 地址格式: '{final_mac_str_no_sep}' ({e})。"
-                    "请使用 12 位十六进制格式 (可包含分隔符)。将使用 0 作为 MAC 地址。"
+                    "请使用 12 位十六进制格式。将使用 0 作为 MAC 地址。"
                 )
-                self.mac_address = 0  # 保持为 0
+                self.mac_address = 0  # 返回 0 表示无效或未找到
         else:
             logger.warning("MAC 地址最终未能确定，将使用 0。")
+            self.mac_address = 0  # 返回 0
 
-        # --- 加载用户凭证 ---
+        # 加载用户凭证
         self.username: Optional[str] = os.getenv("USERNAME")
         self.password: Optional[str] = os.getenv("PASSWORD")
 
-        # --- 加载主机信息 ---
+        # 加载主机信息
         self.host_name: str = os.getenv("HOST_NAME", constants.DEFAULT_HOST_NAME)
         self.host_os: str = os.getenv("HOST_OS", constants.DEFAULT_HOST_OS)
 
-        # --- 加载其他协议相关参数 (字节串) ---
+        # 加载其他协议相关参数 (字节串)
         try:
             self.adapter_num: bytes = bytes.fromhex(os.getenv("ADAPTERNUM", "01"))
             self.ipdog: bytes = bytes.fromhex(os.getenv("IPDOG", "01"))
@@ -285,8 +297,9 @@ class DrcomCore:
             self.control_check_status: bytes = bytes.fromhex(
                 os.getenv("CONTROL_CHECK_STATUS", "20")
             )
+            # 注意: keep_alive_version 在 constants.py 中有默认值，这里仍允许覆盖
             self.keep_alive_version: bytes = bytes.fromhex(
-                os.getenv("KEEP_ALIVE_VERSION", "dc02")
+                os.getenv("KEEP_ALIVE_VERSION", constants.KEEP_ALIVE_VERSION.hex())
             )
         except ValueError as e:
             logger.critical(
@@ -294,24 +307,23 @@ class DrcomCore:
             )
             sys.exit(f"配置错误: {e}")
 
-        # --- 加载 ROR 状态 (布尔值) ---
+        # 加载 ROR 状态 (布尔值)
         self.ror_status: bool = (
             os.getenv("ROR_STATUS", str(False)).lower()
             in constants.BOOLEAN_TRUE_STRINGS
         )
 
-        # --- 加载网络配置 ---
+        # 加载网络配置
         self.dhcp_address: str = os.getenv("DHCP_SERVER", constants.DEFAULT_DHCP_SERVER)
         self.primary_dns: str = os.getenv("PRIMARY_DNS", constants.DEFAULT_PRIMARY_DNS)
 
-        # --- 配置项校验 ---
+        # 配置项校验
         required_configs = {
             "服务器地址 (SERVER_IP)": self.server_address,
             "用户名 (USERNAME)": self.username,
             "密码 (PASSWORD)": self.password,
-            "本机IP (HOST_IP)": self.host_ip
-            and self.host_ip != "0.0.0.0",  # IP 不能是 0.0.0.0
-            "MAC 地址 (MAC)": self.mac_address != 0,  # MAC 不能是 0
+            "本机IP (HOST_IP)": self.host_ip and self.host_ip != "0.0.0.0",
+            "MAC 地址 (MAC)": self.mac_address != 0,
         }
         missing_configs = [
             name for name, value in required_configs.items() if not value
@@ -371,7 +383,6 @@ class DrcomCore:
                 logger.warning(f"Challenge 第 {attempt} 次尝试超时。")
             except socket.error as e:
                 logger.error(f"Challenge 第 {attempt} 次尝试时发生 Socket 错误: {e}。")
-                # Socket 错误后稍作等待可能有助于恢复
                 time.sleep(constants.SLEEP_SOCKET_ERROR)
             except Exception as e:
                 logger.error(
@@ -380,7 +391,6 @@ class DrcomCore:
 
             retries += 1
             if retries < max_retries:
-                # 随机等待一段时间后重试
                 wait_time = random.uniform(0.5, 1.5)
                 logger.debug(f"等待 {wait_time:.2f} 秒后重试...")
                 time.sleep(wait_time)
@@ -406,7 +416,6 @@ class DrcomCore:
         if not self.salt:
             logger.error("登录失败：未获取到 Salt。请先成功执行 Challenge。")
             return False
-        # 确认必要配置存在
         if not all([self.username, self.password, self.host_ip, self.mac_address]):
             logger.error("登录失败：缺少必要的配置信息 (用户名、密码、IP 或 MAC)。")
             return False
@@ -415,9 +424,8 @@ class DrcomCore:
         while retries < max_retries:
             attempt = retries + 1
             try:
-                # 1. 构建登录数据包
                 logger.info(f"第 {attempt}/{max_retries} 次尝试构建和发送登录请求...")
-                login_packet = _build_login_packet(
+                login_packet = build_login_packet(
                     username=self.username,
                     password=self.password,
                     salt=self.salt,
@@ -434,81 +442,322 @@ class DrcomCore:
                     ror_status=self.ror_status,
                 )
 
-                # 2. 发送登录数据包
                 self.core_socket.settimeout(constants.TIMEOUT_LOGIN)
-                send_login_request_login(  # 使用别名后的发送函数
+                send_login_request_login(
                     self.core_socket, self.server_address, self.drcom_port, login_packet
                 )
 
-                # 3. 接收登录响应
-                response_data, server_addr = self.core_socket.recvfrom(
-                    1024
-                )  # Buffer size
+                response_data, server_addr = self.core_socket.recvfrom(1024)
 
-                # 4. 解析登录响应
-                # 确保 server_addr 不为 None 才访问其元素
                 received_ip = server_addr[0] if server_addr else None
                 if not received_ip:
                     logger.warning("收到登录响应但无法获取来源 IP 地址。")
-                    continue  # 进行下一次重试
+                    continue
 
                 is_success, auth_info_data, error_code, message = parse_login_response(
                     response_data, self.server_address, received_ip
                 )
 
-                # 5. 处理结果
                 if is_success:
-                    if auth_info_data:  # 确保 auth_info 不是 None
+                    if auth_info_data:
                         self.auth_info = auth_info_data
                         self.login_success = True
                         logger.info(f"登录成功！ ({message})")
-                        return True  # 登录成功，退出函数
+                        return True
                     else:
-                        # 成功响应但未能提取 auth_info 是异常情况
                         logger.error(f"登录响应成功，但无法提取认证信息。({message})")
-                        # 这种情况也视为失败，但不一定需要重试
                         return False
 
                 else:  # is_success is False
                     logger.error(f"登录失败: {message}")
-                    # 根据错误码判断是否需要停止重试
                     if (
                         error_code is not None
                         and error_code in constants.NO_RETRY_ERROR_CODES
                     ):
-                        logger.warning(
-                            "此错误通常由配置或账户问题引起，停止登录尝试。"
-                            "请检查配置或联系管理员。"
-                        )
-                        return False  # 确定性失败，无需重试
+                        logger.warning("此错误通常由配置或账户问题引起，停止登录尝试。")
+                        return False
 
-            except ValueError as ve:  # 捕获构建错误
+            except ValueError as ve:
                 logger.error(f"构建登录包时发生配置或数据错误: {ve}")
                 logger.debug(traceback.format_exc())
-                return False  # 构建错误通常不应重试
+                return False
             except socket.timeout:
                 logger.warning(f"登录第 {attempt} 次尝试接收响应超时。")
             except socket.error as e:
                 logger.error(f"登录第 {attempt} 次尝试时发生 Socket 错误: {e}。")
-                time.sleep(constants.SLEEP_SOCKET_ERROR)  # Socket 错误后等待
+                time.sleep(constants.SLEEP_SOCKET_ERROR)
             except Exception as e:
                 logger.error(
                     f"登录第 {attempt} 次尝试时发生意外错误: {e}", exc_info=True
                 )
 
-            # 准备下一次重试
             retries += 1
             if retries < max_retries:
-                wait_time = random.uniform(1.0, 3.0)  # 重试间隔
+                wait_time = random.uniform(1.0, 3.0)
                 logger.debug(f"等待 {wait_time:.2f} 秒后重试登录...")
                 time.sleep(wait_time)
 
         logger.error("登录失败 (超过最大重试次数)。")
         self.login_success = False
-        self.auth_info = b""  # 清空认证信息
+        self.auth_info = b""
         return False
 
-    ################################################################
+    def _build_keep_alive1_packet(self) -> Optional[bytes]:
+        """
+        构建 Keep Alive 1 (FF 包 / 心跳包 1)。
+        调用 keep_alive 模块中的函数实现。
+
+        Returns:
+            Optional[bytes]: 构建好的 FF 心跳包，如果缺少必要信息则返回 None。
+        """
+        if not self.salt or not self.auth_info or not self.password:
+            logger.error("缺少构建 Keep Alive 1 的必要信息 (salt, auth_info, password)")
+            return None
+        return build_keep_alive1_packet(
+            salt=self.salt,
+            password=self.password,
+            auth_info=self.auth_info,
+            include_trailing_zeros=True,
+        )
+
+    def _manage_keep_alive2_sequence(self) -> bool:
+        """
+        管理并发送 Keep Alive 2 (07 包) 序列，并处理响应以更新状态。
+        包含初始化序列 (Type 1 -> Type 1 -> Type 3) 和循环序列 (Type 1 -> Type 3)。
+
+        Returns:
+            bool: 如果序列中的所有发送和接收都成功，则返回 True，否则返回 False。
+                  返回 False 将导致心跳循环中断。
+        """
+        if not self.core_socket or not self.host_ip:
+            logger.error("无法执行 Keep Alive 2：套接字或主机 IP 未初始化。")
+            return False
+
+        logger.debug("开始执行 Keep Alive 2 (07 包) 序列...")
+        try:
+            if not self._ka2_initialized:
+                logger.info("执行 Keep Alive 2 初始化序列...")
+                # Seq 1: Type 1 (First), tail=0000
+                pkt1 = build_keep_alive2_packet(
+                    packet_number=self.keep_alive_serial_num,
+                    tail=b"\x00\x00\x00\x00",
+                    packet_type=1,
+                    host_ip=self.host_ip,
+                    is_first_packet=True,
+                )
+                if not pkt1:
+                    return False
+                resp1_data = self._send_and_receive_ka("KA2 Init Seq 1", pkt1)
+                if not resp1_data:
+                    return False
+                self.keep_alive_serial_num = (self.keep_alive_serial_num + 1) % 256
+
+                # Seq 2: Type 1 (Not First), tail=0000
+                pkt2 = build_keep_alive2_packet(
+                    packet_number=self.keep_alive_serial_num,
+                    tail=b"\x00\x00\x00\x00",
+                    packet_type=1,
+                    host_ip=self.host_ip,
+                    is_first_packet=False,
+                )
+                if not pkt2:
+                    return False
+                resp2_data = self._send_and_receive_ka("KA2 Init Seq 2", pkt2)
+                if not resp2_data:
+                    return False
+                new_tail2 = parse_keep_alive2_response(resp2_data)
+                if not new_tail2:
+                    return False
+                self.keep_alive_tail = new_tail2
+                self.keep_alive_serial_num = (self.keep_alive_serial_num + 1) % 256
+
+                # Seq 3: Type 3, tail=from resp2
+                pkt3 = build_keep_alive2_packet(
+                    packet_number=self.keep_alive_serial_num,
+                    tail=self.keep_alive_tail,
+                    packet_type=3,
+                    host_ip=self.host_ip,
+                    is_first_packet=False,
+                )
+                if not pkt3:
+                    return False
+                resp3_data = self._send_and_receive_ka("KA2 Init Seq 3", pkt3)
+                if not resp3_data:
+                    return False
+                new_tail3 = parse_keep_alive2_response(resp3_data)
+                if not new_tail3:
+                    return False
+                self.keep_alive_tail = new_tail3
+                self.keep_alive_serial_num = (self.keep_alive_serial_num + 1) % 256
+
+                self._ka2_initialized = True
+                logger.info("Keep Alive 2 初始化序列完成。")
+
+            else:  # KA2已初始化，执行循环序列
+                logger.debug("执行 Keep Alive 2 循环序列...")
+                # Loop Seq 1: Type 1, tail=current
+                pkt_loop1 = build_keep_alive2_packet(
+                    packet_number=self.keep_alive_serial_num,
+                    tail=self.keep_alive_tail,
+                    packet_type=1,
+                    host_ip=self.host_ip,
+                    is_first_packet=False,
+                )
+                if not pkt_loop1:
+                    return False
+                resp_loop1_data = self._send_and_receive_ka("KA2 Loop Seq 1", pkt_loop1)
+                if not resp_loop1_data:
+                    return False
+                new_tail_loop1 = parse_keep_alive2_response(resp_loop1_data)
+                if not new_tail_loop1:
+                    return False
+                self.keep_alive_tail = new_tail_loop1
+                self.keep_alive_serial_num = (self.keep_alive_serial_num + 1) % 256
+
+                # Loop Seq 2: Type 3, tail=from resp_loop1
+                pkt_loop2 = build_keep_alive2_packet(
+                    packet_number=self.keep_alive_serial_num,
+                    tail=self.keep_alive_tail,
+                    packet_type=3,
+                    host_ip=self.host_ip,
+                    is_first_packet=False,
+                )
+                if not pkt_loop2:
+                    return False
+                resp_loop2_data = self._send_and_receive_ka("KA2 Loop Seq 2", pkt_loop2)
+                if not resp_loop2_data:
+                    return False
+                new_tail_loop2 = parse_keep_alive2_response(resp_loop2_data)
+                if not new_tail_loop2:
+                    return False
+                self.keep_alive_tail = new_tail_loop2
+                self.keep_alive_serial_num = (self.keep_alive_serial_num + 1) % 256
+                logger.debug("Keep Alive 2 循环序列完成。")
+
+            return True  # 整个序列成功
+
+        except socket.timeout:
+            logger.warning("Keep Alive 2 序列中发生响应超时。")
+            return False
+        except socket.error as e:
+            logger.error(f"Keep Alive 2 序列中发生 Socket 错误: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Keep Alive 2 序列中发生意外错误: {e}", exc_info=True)
+            return False
+
+    def _send_and_receive_ka(self, log_prefix: str, packet: bytes) -> Optional[bytes]:
+        """
+        辅助函数：发送 Keep Alive 包并接收响应。
+
+        Args:
+            log_prefix: 用于日志记录的前缀字符串。
+            packet: 要发送的数据包。
+
+        Returns:
+            Optional[bytes]: 成功接收到响应则返回响应数据，否则返回 None (已记录错误)。
+                             如果发生超时或 Socket 错误，则重新抛出异常。
+        """
+        if not self.core_socket:
+            logger.error(f"{log_prefix}: 套接字未初始化。")
+            return None
+        try:
+            logger.debug(f"发送 {log_prefix}: {packet.hex()}")
+            self.core_socket.settimeout(constants.TIMEOUT_KEEP_ALIVE)
+            self.core_socket.sendto(packet, (self.server_address, self.drcom_port))
+            response_data, server_addr = self.core_socket.recvfrom(1024)  # Buffer size
+            logger.debug(
+                f"收到 {log_prefix} 响应: {response_data.hex()} from {server_addr}"
+            )
+
+            # 校验来源 IP
+            if not server_addr or server_addr[0] != self.server_address:
+                logger.warning(
+                    f"{log_prefix} 收到来自非预期来源 ({server_addr}) 的响应。"
+                )
+                return None  # 视为无效响应
+
+            # 基本校验：响应不能为空且 Code 必须是 0x07
+            if not response_data or not response_data.startswith(
+                constants.KEEP_ALIVE_RESP_CODE
+            ):
+                logger.warning(
+                    f"{log_prefix} 收到无效响应或 Code 错误: {response_data[:1].hex() if response_data else 'None'}"
+                )
+                return None
+            return response_data
+        except socket.timeout:
+            logger.warning(f"{log_prefix} 响应超时。")
+            raise  # 将超时异常抛给调用者 (start_keep_alive 或 _manage_keep_alive2_sequence) 处理
+        except socket.error as e:
+            logger.error(f"{log_prefix} 时发生 Socket 错误: {e}")
+            raise  # 将 Socket 错误抛给调用者处理
+
+    def start_keep_alive(self) -> None:
+        """
+        启动心跳维持循环。
+        循环发送 Keep Alive 1 (FF 包) 和 Keep Alive 2 (07 包) 序列。
+        如果发生错误或超时，将中断循环。
+        """
+        if not self.login_success or not self.auth_info:
+            logger.error("无法启动心跳：尚未登录或缺少认证信息。")
+            return
+        if not self.core_socket:
+            logger.error("无法启动心跳：网络套接字未初始化。")
+            return
+
+        logger.info("开始发送心跳包...")
+        try:
+            # 重置/初始化 KA2 状态
+            self.keep_alive_serial_num = 0
+            self.keep_alive_tail = b"\x00\x00\x00\x00"
+            self._ka2_initialized = False
+
+            while True:
+                # 发送 Keep Alive 1 (FF 包)
+                keep_alive1_packet = self._build_keep_alive1_packet()
+                if not keep_alive1_packet:
+                    logger.error("构建 Keep Alive 1 失败，心跳中断。")
+                    break
+
+                try:
+                    logger.debug("发送 Keep Alive 1 (FF)...")
+                    ka1_response = self._send_and_receive_ka("KA1", keep_alive1_packet)
+                    if not ka1_response:
+                        logger.warning(
+                            "Keep Alive 1 未收到有效响应或发生错误，可能已掉线。"
+                        )
+                        break  # 中断心跳
+                    # 解析 KA1 响应（可选，目前只检查 Code）
+                    if not parse_keep_alive1_response(ka1_response):
+                        logger.warning("Keep Alive 1 响应解析失败，可能已掉线。")
+                        break
+
+                except socket.timeout:
+                    logger.warning("Keep Alive 1 响应超时，可能已掉线。")
+                    break
+                except socket.error as e_ka1:
+                    logger.error(f"发送或接收 Keep Alive 1 时发生 Socket 错误: {e_ka1}")
+                    break
+
+                # 执行 Keep Alive 2 (07 包) 序列
+                if not self._manage_keep_alive2_sequence():
+                    logger.error("Keep Alive 2 序列执行失败，心跳中断。")
+                    break  # KA2 序列失败，中断心跳
+
+                # 等待间隔
+                logger.debug(
+                    f"等待 {constants.SLEEP_KEEP_ALIVE_INTERVAL} 秒发送下一轮心跳..."
+                )
+                time.sleep(constants.SLEEP_KEEP_ALIVE_INTERVAL)
+
+        except KeyboardInterrupt:
+            logger.info("心跳循环收到中断信号。")
+        except Exception as e:
+            logger.error(f"心跳循环中发生意外错误: {e}", exc_info=True)
+        finally:
+            logger.info("心跳循环结束。")
+            self.login_success = False  # 标记为未登录
 
     def perform_logout(self) -> None:
         """
@@ -516,41 +765,35 @@ class DrcomCore:
         这是一个“尽力而为”的操作，失败时不重试。
         登出前会尝试获取新的 Challenge Salt。
         """
-        # 1. 检查是否需要登出 (是否有有效的 auth_info)
         if not self.auth_info:
             logger.info("未登录或缺少认证信息 (Auth Info)，无需执行登出操作。")
             return
         if not self.core_socket:
             logger.warning("尝试登出但网络套接字未初始化。")
-            return  # 无法发送登出包
+            return
 
         logger.info("正在尝试执行登出...")
-        original_salt = self.salt  # 保存当前的 salt 以备后用
-        logout_success = False  # 标记登出操作是否完成 (客户端角度)
+        original_salt = self.salt
+        logout_success = False
 
         try:
-            # 2. 尝试获取新的 Challenge salt (仅一次)
             logout_challenge_ok = self.perform_challenge(
                 max_retries=constants.MAX_RETRIES_LOGOUT_CHALLENGE
             )
             if not logout_challenge_ok:
                 logger.warning(
-                    "登出前获取新的 Challenge salt 失败。"
-                    "将尝试使用之前的 salt (如果存在) 构建登出包。"
+                    "登出前获取新的 Challenge salt 失败。将尝试使用旧 salt。"
                 )
                 if not original_salt:
                     logger.error("无可用 Salt，无法构建登出包，放弃登出。")
-                    # 清理状态，因为无法执行登出
                     self.login_success = False
                     self.auth_info = b""
                     self.salt = b""
-                    return  # 无法继续
+                    return
                 else:
-                    self.salt = original_salt  # 确保使用旧 salt
+                    self.salt = original_salt
 
-            # 3. 构建登出包 (使用当前 self.salt)
             try:
-                # 确保登出所需参数存在
                 if not all(
                     [
                         self.username,
@@ -561,9 +804,9 @@ class DrcomCore:
                     ]
                 ):
                     logger.error("构建登出包失败：缺少必要参数。")
-                    return  # 无法构建，放弃
+                    return
 
-                logout_packet = _build_logout_packet(
+                logout_packet = build_logout_packet(
                     username=self.username,
                     password=self.password,
                     salt=self.salt,
@@ -574,16 +817,14 @@ class DrcomCore:
                 )
             except ValueError as ve:
                 logger.error(f"构建登出包时发生错误: {ve}，放弃登出。")
-                return  # 构建失败则不发送
+                return
 
-            # 4. 发送登出包
             logger.debug(f"发送登出数据包: {logout_packet.hex()}")
             self.core_socket.settimeout(constants.TIMEOUT_LOGOUT)
-            send_logout_request(  # 使用别名后的发送函数
+            send_logout_request(
                 self.core_socket, self.server_address, self.drcom_port, logout_packet
             )
 
-            # 5. 尝试接收并解析响应 (仅用于日志，不影响登出状态判定)
             try:
                 response_data, server_addr = self.core_socket.recvfrom(1024)
                 received_ip = server_addr[0] if server_addr else None
@@ -592,31 +833,30 @@ class DrcomCore:
                 )
                 if resp_success:
                     logger.info(f"登出响应解析结果: {message}")
-                    logout_success = True  # 收到成功响应
+                    logout_success = True
                 else:
                     logger.warning(f"登出响应解析结果: {message}")
-                    # 即使收到非预期响应，客户端已发送登出包，也可能视为已尝试
-                    logout_success = True  # 或 False，取决于策略
+                    logout_success = True
             except socket.timeout:
-                logger.info("发送登出包后未收到响应 (正常情况，视为客户端已尝试登出)。")
-                logout_success = True  # 超时视为成功登出 (客户端已尽力)
+                logger.info("发送登出包后未收到响应 (正常情况)。")
+                logout_success = True
             except socket.error as sock_err_recv:
                 logger.warning(f"接收登出响应时发生 Socket 错误: {sock_err_recv}")
-                logout_success = True  # 即使接收出错，也认为客户端已尝试登出
+                logout_success = True
 
         except socket.error as sock_err_send:
             logger.error(f"发送登出包时发生 Socket 错误: {sock_err_send}")
-            # 发送失败，登出未成功，但仍需清理状态
         except Exception as e:
             logger.error(f"执行登出操作时发生意外错误: {e}", exc_info=True)
-            # 发生意外错误，状态未知，但仍清理
 
         finally:
-            # 无论登出尝试是否成功或遇到何种错误，都清理客户端状态
             self.login_success = False
             self.auth_info = b""
-            self.salt = b""  # 清理 salt
-            logger.info("登出流程结束。本地状态已清理。")
+            self.salt = b""
+            self.keep_alive_serial_num = 0
+            self.keep_alive_tail = b"\x00\x00\x00\x00"
+            self._ka2_initialized = False
+            logger.info("登出流程结束。本地状态已清理 (包括 Keep Alive)。")
 
     def run(self) -> None:
         """启动认证和心跳的主循环。"""
@@ -627,53 +867,41 @@ class DrcomCore:
                     logger.info("当前未登录，尝试进行认证...")
                     if self.perform_challenge():
                         if self.perform_login():
-                            # 登录成功，启动心跳
                             logger.info("登录成功，启动心跳维持...")
                             self.start_keep_alive()
-                            # 从 start_keep_alive 返回意味着心跳中断或失败
                             logger.info("心跳已停止，将尝试重新认证。")
-                            # start_keep_alive 的 finally 块已设置 self.login_success = False
-                        else:  # perform_login 返回 False
-                            # 登录过程遇到不可重试错误或已达最大次数
+                        else:
                             logger.error("登录过程失败，无法继续。")
-                            # 可以选择等待后退出，或直接退出
                             logger.info(
                                 f"程序将在 {constants.SLEEP_LOGIN_FAIL_EXIT} 秒后退出。"
                             )
                             time.sleep(constants.SLEEP_LOGIN_FAIL_EXIT)
-                            break  # 退出主循环
-                    else:  # perform_challenge 返回 False
+                            break
+                    else:
                         logger.error("Challenge 失败，无法进行登录。")
                         logger.info(
                             f"将在 {constants.SLEEP_CHALLENGE_FAIL_RETRY} 秒后重试 Challenge..."
                         )
                         time.sleep(constants.SLEEP_CHALLENGE_FAIL_RETRY)
-                        # 继续下一次循环尝试 Challenge
                 else:
-                    # 理论上不应进入此分支，因为 login_success 为 True 时应在 start_keep_alive 循环中
                     logger.warning(
                         "检测到异常状态 (login_success=True 但未在心跳中)，"
                         f"将在 {constants.SLEEP_ABNORMAL_STATE_RETRY} 秒后强制重置状态并尝试重新认证。"
                     )
-                    self.login_success = False  # 强制重置状态
+                    self.login_success = False
                     time.sleep(constants.SLEEP_ABNORMAL_STATE_RETRY)
-                    # 继续下一次循环尝试认证
 
         except KeyboardInterrupt:
             logger.info("用户请求退出 (Ctrl+C)。")
         except SystemExit as e:
             logger.info(f"程序因调用 sys.exit() 而退出: {e}")
-            # 通常在初始化或配置加载失败时发生
         except Exception as e:
             logger.critical(f"主循环发生严重错误，程序即将退出: {e}", exc_info=True)
-            # 记录详细错误信息
         finally:
             logger.info("执行最终清理...")
-            # 尝试执行登出操作 (如果 core_socket 存在且之前可能登录过)
             if self.core_socket:
-                self.perform_logout()  # perform_logout 内部会检查 auth_info
+                self.perform_logout()
 
-            # 关闭 socket
             if self.core_socket and not self.core_socket._closed:
                 try:
                     self.core_socket.close()
