@@ -98,7 +98,7 @@ class DrcomCore:
 
         logger.info("Dr.Com-Core 初始化成功。")
 
-    # --- 内部核心逻辑 (Internal Methods) ---
+    # 内部核心逻辑 (Internal Methods)
 
     def _init_socket(self) -> None:
         """初始化 UDP 网络套接字并绑定到指定 IP 和端口。"""
@@ -713,7 +713,6 @@ class DrcomCore:
 
         logger.info("正在尝试执行 [内部] Logout 过程...")
         original_salt = self.salt
-        logout_success = False
 
         try:
             # 调用内部方法 _perform_challenge
@@ -773,16 +772,12 @@ class DrcomCore:
                 )
                 if resp_success:
                     logger.info(f"登出响应解析结果: {message}")
-                    logout_success = True
                 else:
                     logger.warning(f"登出响应解析结果: {message}")
-                    logout_success = True  # 即使响应解析失败，也认为登出已尝试
             except socket.timeout:
                 logger.info("发送登出包后未收到响应 (正常情况)。")
-                logout_success = True
             except socket.error as sock_err_recv:
                 logger.warning(f"接收登出响应时发生 Socket 错误: {sock_err_recv}")
-                logout_success = True  # 同样认为已尝试
 
         except socket.error as sock_err_send:
             logger.error(f"发送登出包时发生 Socket 错误: {sock_err_send}")
@@ -798,7 +793,7 @@ class DrcomCore:
             self._ka2_initialized = False
             logger.info("登出流程结束。本地状态已清理 (包括 Keep Alive)。")
 
-    # --- 公开 API (Public API) ---
+    # 公开 API
 
     def login(self) -> bool:
         """
@@ -849,11 +844,11 @@ class DrcomCore:
             # 2. 开始心跳主循环
             #    循环条件变为检查“停止事件”是否被设置
             while not self._heartbeat_stop_event.is_set():
-                # --- 步骤 A: 执行 Keep Alive 1 (FF 包) ---
+                # 步骤 A: 执行 Keep Alive 1 (FF 包)
                 ka1_packet = self._build_keep_alive1_packet()
                 if not ka1_packet:
                     logger.error("构建 Keep Alive 1 (FF) 失败，心跳中断。")
-                    break  # 退出 while 循环
+                    break
 
                 try:
                     logger.debug("发送 Keep Alive 1 (FF)...")
@@ -861,36 +856,36 @@ class DrcomCore:
 
                     if not ka1_response:
                         logger.warning("Keep Alive 1 (FF) 未收到有效响应，可能已掉线。")
-                        break  # 退出 while 循环
+                        break
 
                     # 解析 KA1 响应（目前仅检查 Code 0x07）
                     if not parse_keep_alive1_response(ka1_response):
                         logger.warning("Keep Alive 1 (FF) 响应解析失败，可能已掉线。")
-                        break  # 退出 while 循环
+                        break
 
                 except socket.timeout:
                     logger.warning("Keep Alive 1 (FF) 响应超时，可能已掉线。")
-                    break  # 退出 while 循环
+                    break
                 except socket.error as e_ka1:
                     logger.error(
                         f"发送或接收 Keep Alive 1 (FF) 时发生 Socket 错误: {e_ka1}"
                     )
-                    break  # 退出 while 循环
+                    break
                 except Exception as e_ka1_other:
                     logger.error(
                         f"处理 Keep Alive 1 (FF) 时发生意外错误: {e_ka1_other}",
                         exc_info=True,
                     )
-                    break  # 退出 while 循环
+                    break
 
-                # --- 步骤 B: 执行 Keep Alive 2 (07 包) 序列 ---
+                # 步骤 B: 执行 Keep Alive 2 (07 包) 序列
 
                 # _manage_keep_alive2_sequence 内部会处理初始化和循环序列
                 if not self._manage_keep_alive2_sequence():
                     logger.error("Keep Alive 2 (07) 序列执行失败，心跳中断。")
                     break  # KA2 序列失败，退出 while 循环
 
-                # --- 步骤 C: 等待间隔 ---
+                # 步骤 C: 等待间隔
                 logger.debug(
                     f"本轮心跳完成，等待 {constants.SLEEP_KEEP_ALIVE_INTERVAL} 秒..."
                 )
