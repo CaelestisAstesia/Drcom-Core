@@ -2,23 +2,18 @@
 """
 Dr.COM 认证核心逻辑模块。
 
-负责加载配置、初始化网络、执行认证流程、
+负责初始化网络、执行认证流程、
 维持心跳以及处理登出。
 """
 
 import logging
-import os
 import random
 import socket
 import sys
 import threading
 import time
 import traceback
-from pathlib import Path
-from typing import Optional, Tuple
-
-import netifaces
-from dotenv import load_dotenv
+from typing import Any, Dict, Optional
 
 # 导入协议处理模块和常量
 from ..drcom_protocol import constants
@@ -51,42 +46,28 @@ logger = logging.getLogger(__name__)
 
 class DrcomCore:
     """
-    Dr.COM 认证核心逻辑类。
+    Dr.COM 认证核心逻辑类 (API)。
 
-    此类封装了 Dr.COM D 版认证的完整生命周期，包括配置加载、
-    网络初始化、登录、心跳维持和登出。
-    它被设计为可重用的 API 库。
+    此类封装了 Dr.COM D 版认证的完整生命周期。
+    它被设计为可重用的 API 库，通过构造函数 (constructor) 接收所有配置。
 
     Attributes:
-        server_address (str): Dr.COM 服务器 IP 地址。
-        drcom_port (int): Dr.COM 服务器认证端口。
-        username (str): 用户名。
-        password (str): 密码。
-        host_ip (str): 本机 IP 地址。
-        mac_address (int): 本机 MAC 地址的整数表示。
-        salt (bytes): 当前有效的 Challenge Salt。
-        auth_info (bytes): 登录成功后获取的认证信息 (Tail)，用于心跳。
         login_success (bool): 标记当前是否处于登录成功状态。
-        core_socket (Optional[socket.socket]): 用于与服务器通信的 UDP 套接字。
-        keep_alive_serial_num (int): Keep Alive 2 (07 包) 的当前序列号。
-        keep_alive_tail (bytes): Keep Alive 2 (07 包) 的当前 tail 值。
-        _ka2_initialized (bool): 标记 Keep Alive 2 初始化序列是否已完成。
-        _heartbeat_stop_event (threading.Event): 用于通知心跳线程停止的事件。
-        _heartbeat_thread (Optional[threading.Thread]): 心跳维持线程对象。
+        # ... (其他内部状态)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: Dict[str, Any]) -> None:
         """
         初始化 DrcomCore 类。
 
-        在实例化时，将自动执行以下操作：
-        1. 初始化内部状态变量。
-        2. 加载 .env 文件或环境变量中的配置 (`_load_config`)。
-        3. 初始化并绑定 UDP 套接字 (`_init_socket`)。
+        Args:
+            config (Dict[str, Any]):
+                包含所有必要配置的字典。调用者 (如 CLI 或 GUI)
+                负责加载此配置。
 
         Raises:
-            RuntimeError: 如果配置加载或套接字初始化失败。
-            SystemExit: 如果缺少关键配置项（如用户名、密码、IP等）。
+            ValueError: 如果 config 字典中缺少必要的键。
+            SystemExit: 如果套接字初始化失败。
         """
         logger.info("Dr.Com-Core 正在初始化...")
         self.salt: bytes = b""
@@ -96,268 +77,121 @@ class DrcomCore:
 
         # 初始化 Keep Alive 2 状态
         self.keep_alive_serial_num: int = 0
-        self.keep_alive_tail: bytes = b"\x00\x00\x00\x00"  # 初始 tail 通常是 0
-        self._ka2_initialized: bool = False  # 标记 KA2 初始化序列是否完成
+        self.keep_alive_tail: bytes = b"\x00\x00\x00\x00"
+        self._ka2_initialized: bool = False
 
         self._heartbeat_stop_event = threading.Event()
         self._heartbeat_thread: Optional[threading.Thread] = None
 
         try:
-            self._load_config()  # 加载所有配置
-            self._init_socket()  # 初始化网络套接字
+            # 1. 解析传入的 config 字典
+            self._parse_config(config)
+            # 2. 初始化网络套接字
+            self._init_socket()
+        except (ValueError, KeyError) as e:
+            logger.critical(f"配置错误: {e}")
+            raise ValueError(f"配置错误: {e}") from e
         except Exception as e:
             logger.critical(f"初始化失败: {e}")
             logger.critical(traceback.format_exc())
-            # 使用 sys.exit() 并提供错误信息，方便外部捕获
             sys.exit(f"初始化过程中发生致命错误: {e}")
 
         logger.info("Dr.Com-Core 初始化成功。")
 
+    def _parse_config(self, config: Dict[str, Any]) -> None:
+        """
+        [内部] 从传入的字典中解析配置并设置实例属性。
+
+        Raises:
+            KeyError: 如果缺少必要的配置项。
+            ValueError: 如果配置项格式错误（如 MAC）。
+        """
+        logger.debug("正在解析传入的配置字典...")
+        try:
+            # 网络配置
+            self.server_address: str = config["SERVER_IP"]
+            self.drcom_port: int = int(
+                config.get("DRCOM_PORT", constants.DEFAULT_DRCOM_PORT)
+            )
+
+            # 凭据
+            self.username: str = config["USERNAME"]
+            self.password: str = config["PASSWORD"]
+
+            # 主机信息
+            self.host_ip: str = config["HOST_IP"]
+            self.bind_ip: str = config.get(
+                "BIND_IP", self.host_ip
+            )  # 默认绑定到 Host IP
+            mac_str: str = config["MAC"]
+
+            # 主机环境
+            self.host_name: str = config.get("HOST_NAME", constants.DEFAULT_HOST_NAME)
+            self.host_os: str = config.get("HOST_OS", constants.DEFAULT_HOST_OS)
+            self.primary_dns: str = config.get(
+                "PRIMARY_DNS", constants.DEFAULT_PRIMARY_DNS
+            )
+            self.dhcp_address: str = config.get(
+                "DHCP_SERVER", constants.DEFAULT_DHCP_SERVER
+            )
+
+            # 协议参数 (字节串)
+            self.adapter_num: bytes = bytes.fromhex(config.get("ADAPTERNUM", "01"))
+            self.ipdog: bytes = bytes.fromhex(config.get("IPDOG", "01"))
+            self.auth_version: bytes = bytes.fromhex(config.get("AUTH_VERSION", "0a00"))
+            self.control_check_status: bytes = bytes.fromhex(
+                config.get("CONTROL_CHECK_STATUS", "20")
+            )
+            self.keep_alive_version: bytes = bytes.fromhex(
+                config.get("KEEP_ALIVE_VERSION", constants.KEEP_ALIVE_VERSION.hex())
+            )
+
+            # ROR 状态 (布尔值)
+            self.ror_status: bool = (
+                str(config.get("ROR_STATUS", "False")).lower()
+                in constants.BOOLEAN_TRUE_STRINGS
+            )
+
+            # MAC 地址处理
+            clean_mac = mac_str.replace(":", "").replace("-", "")
+            if len(clean_mac) == 12:
+                self.mac_address: int = int(clean_mac, 16)
+            else:
+                raise ValueError(f"MAC 地址格式无效: {mac_str}")
+
+        except KeyError as e:
+            logger.critical(f"配置中缺少必要的键: {e}")
+            raise KeyError(f"配置中缺少 {e}") from e
+        except Exception as e:
+            logger.critical(f"解析配置时出错: {e}")
+            raise ValueError(f"解析配置失败: {e}") from e
+
+        logger.info("配置解析成功。")
+
     # 内部核心逻辑 (Internal Methods)
 
     def _init_socket(self) -> None:
-        """初始化 UDP 网络套接字并绑定到指定 IP 和端口。"""
+        """[内部] 初始化 UDP 网络套接字并绑定到指定 IP 和端口。"""
         logger.info("正在初始化网络套接字...")
-        if not hasattr(self, "bind_ip") or not hasattr(self, "drcom_port"):
-            raise RuntimeError("配置未加载，无法初始化套接字。")
-
         try:
             self.core_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # 设置 SO_REUSEADDR 允许快速重启绑定相同地址
             self.core_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # 绑定到检测到的或配置的 IP 和端口
-            self.core_socket.bind((self.bind_ip, self.drcom_port))
-            # 注意：超时在具体操作前设置更灵活，此处不设置默认超时
-            logger.info(
-                f"网络套接字初始化成功，已绑定到 {self.bind_ip}:{self.drcom_port}"
-            )
+            # 绑定到配置的 BIND_IP 和 0 端口（由系统分配）
+            # 绑定到 0.0.0.0 允许在所有接口上接收
+            # 端口 0 意味着让操作系统选择一个可用的临时端口
+            # 真正的通信端口是 self.drcom_port，在 sendto 时指定
+
+            bind_ip_to_use = "0.0.0.0"  # 监听所有接口
+            bind_port = self.drcom_port
+
+            self.core_socket.bind((bind_ip_to_use, bind_port))
+
+            logger.info(f"网络套接字初始化成功，已绑定到 {bind_ip_to_use}:{bind_port}")
         except socket.error as e:
-            logger.error(f"网络套接字初始化失败: {e}")
+            logger.error(
+                f"网络套接字初始化失败: {e} (端口 {self.drcom_port} 可能已被占用)"
+            )
             raise  # 将异常抛给 __init__ 处理
-
-    def _detect_campus_interface_info(
-        self, campus_ip_prefix: str
-    ) -> Tuple[Optional[str], Optional[str]]:
-        """
-        自动检测符合指定 IP 前缀的校园网接口的 IP 地址和 MAC 地址。
-
-        Args:
-            campus_ip_prefix: 校园网 IP 地址的前缀 (例如 "49.")。
-
-        Returns:
-            Tuple[Optional[str], Optional[str]]: (ip, mac_address) 元组。
-                                                MAC 地址以 "XX:XX:XX:XX:XX:XX" 格式返回。
-                                                找不到则返回 (None, None)。
-        """
-        logger.info(f"正在自动检测校园网接口信息 (IP 前缀: {campus_ip_prefix})...")
-        try:
-            interfaces = netifaces.interfaces()
-        except Exception as e:
-            logger.warning(f"无法获取网络接口列表: {e}")
-            return None, None
-
-        for interface in interfaces:
-            try:
-                addresses = netifaces.ifaddresses(interface)
-            except ValueError:
-                logger.debug(f"无法获取接口 '{interface}' 的地址信息，跳过。")
-                continue  # 有些虚拟接口可能没有地址
-
-            detected_ip: Optional[str] = None
-            detected_mac: Optional[str] = None
-
-            # 1. 查找符合前缀的 IPv4 地址
-            if socket.AF_INET in addresses:
-                for addr_info in addresses[socket.AF_INET]:
-                    ip = addr_info.get("addr")
-                    if ip and ip.startswith(campus_ip_prefix):
-                        detected_ip = ip
-                        logger.debug(
-                            f"在接口 '{interface}' 上找到符合条件的 IP: {detected_ip}"
-                        )
-                        break
-
-            # 2. 如果找到 IP，获取该接口的 MAC 地址
-            if detected_ip and netifaces.AF_LINK in addresses:
-                for link_info in addresses[netifaces.AF_LINK]:
-                    mac = link_info.get("addr")
-                    # 基本的 MAC 地址格式校验
-                    if (
-                        mac
-                        and len(mac) == 17
-                        and mac.count(constants.MAC_SEPARATOR) == 5
-                    ):
-                        detected_mac = mac
-                        logger.debug(
-                            f"在接口 '{interface}' 上找到 MAC 地址: {detected_mac}"
-                        )
-                        break
-
-            # 3. 如果 IP 和 MAC 都找到，返回结果
-            if detected_ip and detected_mac:
-                logger.info(
-                    f"成功检测到接口 '{interface}' 的 IP: {detected_ip} 和 MAC: {detected_mac}"
-                )
-                return detected_ip, detected_mac
-
-        logger.warning(
-            f"未能自动检测到 IP 前缀为 '{campus_ip_prefix}' 的校园网接口信息。"
-        )
-        return None, None
-
-    def _load_config(self) -> None:
-        """
-        从 .env 文件或环境变量加载配置。
-        优先尝试自动检测 IP 和 MAC 地址。
-        如果缺少必要配置项，将记录错误并退出程序。
-        """
-        logger.info("正在加载配置...")
-
-        # 加载 .env 文件
-        env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-        if env_path.exists():
-            logger.debug(f"发现 .env 文件: {env_path}")
-            load_dotenv(dotenv_path=env_path, override=True)
-        else:
-            logger.warning(f".env 文件未找到: {env_path}，将仅依赖环境变量。")
-
-        # 加载基本网络配置
-        self.server_address: str = os.getenv("SERVER_IP", constants.DEFAULT_SERVER_IP)
-        self.drcom_port: int = int(
-            os.getenv("DRCOM_PORT", constants.DEFAULT_DRCOM_PORT)
-        )
-        self.campus_ip_prefix: str = os.getenv(
-            "CAMPUS_IP_PREFIX", constants.DEFAULT_CAMPUS_IP_PREFIX
-        )
-
-        # 自动检测或加载 IP 和 MAC
-        detected_ip: Optional[str] = None
-        detected_mac_str: Optional[str] = None  # 带分隔符的 MAC
-        auto_detect_enabled: bool = (
-            os.getenv(
-                "AUTO_DETECT_CAMPUS_INTERFACE",
-                str(constants.DEFAULT_AUTO_DETECT_INTERFACE),
-            ).lower()
-            in constants.BOOLEAN_TRUE_STRINGS
-        )
-
-        if auto_detect_enabled:
-            detected_ip, detected_mac_str = self._detect_campus_interface_info(
-                self.campus_ip_prefix
-            )
-
-        # 确定最终 IP
-        if detected_ip:
-            self.host_ip: str = detected_ip
-            logger.info(f"使用自动检测到的 IP 地址: {self.host_ip}")
-        else:
-            fallback_ip: Optional[str] = os.getenv("HOST_IP")
-            if fallback_ip and fallback_ip != "0.0.0.0":
-                self.host_ip = fallback_ip
-                logger.info(f"使用环境变量或 .env 中的 HOST_IP: {self.host_ip}")
-            else:
-                error_msg = (
-                    "无法自动检测或从配置中获取有效的校园网 IP 地址 (HOST_IP)。"
-                    "请检查网络接口或手动配置。"
-                )
-                logger.critical(error_msg)
-                sys.exit(error_msg)
-        self.bind_ip: str = self.host_ip  # Socket 绑定 IP
-
-        # 确定最终 MAC
-        final_mac_str_no_sep: Optional[str] = None
-        if detected_mac_str:
-            final_mac_str_no_sep = detected_mac_str.replace(constants.MAC_SEPARATOR, "")
-            logger.info(f"使用自动检测到的 MAC 地址: {detected_mac_str}")
-        else:
-            mac_from_env: Optional[str] = os.getenv("MAC")
-            if mac_from_env:
-                final_mac_str_no_sep = mac_from_env.replace("-", "").replace(
-                    constants.MAC_SEPARATOR, ""
-                )
-                logger.info(f"使用环境变量或 .env 中的 MAC 地址: {mac_from_env}")
-            else:
-                logger.warning("未能自动检测或从配置中获取 MAC 地址。")
-
-        # 将 MAC 字符串转为整数
-        self.mac_address: int = 0
-        if final_mac_str_no_sep:
-            try:
-                # 校验格式和长度
-                if len(final_mac_str_no_sep) == 12 and all(
-                    c in "0123456789abcdefABCDEF" for c in final_mac_str_no_sep
-                ):
-                    self.mac_address = int(final_mac_str_no_sep, 16)
-                    logger.debug(f"最终使用的 MAC 地址 (整数): {hex(self.mac_address)}")
-                else:
-                    raise ValueError("MAC 地址格式或长度无效")
-            except ValueError as e:
-                logger.error(
-                    f"无效的 MAC 地址格式: '{final_mac_str_no_sep}' ({e})。"
-                    "请使用 12 位十六进制格式。将使用 0 作为 MAC 地址。"
-                )
-                self.mac_address = 0  # 返回 0 表示无效或未找到
-        else:
-            logger.warning("MAC 地址最终未能确定，将使用 0。")
-            self.mac_address = 0  # 返回 0
-
-        # 加载用户凭证
-        self.username: Optional[str] = os.getenv("USERNAME")
-        self.password: Optional[str] = os.getenv("PASSWORD")
-
-        # 加载主机信息
-        self.host_name: str = os.getenv("HOST_NAME", constants.DEFAULT_HOST_NAME)
-        self.host_os: str = os.getenv("HOST_OS", constants.DEFAULT_HOST_OS)
-
-        # 加载其他协议相关参数 (字节串)
-        try:
-            self.adapter_num: bytes = bytes.fromhex(os.getenv("ADAPTERNUM", "01"))
-            self.ipdog: bytes = bytes.fromhex(os.getenv("IPDOG", "01"))
-            self.auth_version: bytes = bytes.fromhex(os.getenv("AUTH_VERSION", "0a00"))
-            self.control_check_status: bytes = bytes.fromhex(
-                os.getenv("CONTROL_CHECK_STATUS", "20")
-            )
-            # 注意: keep_alive_version 在 constants.py 中有默认值，这里仍允许覆盖
-            self.keep_alive_version: bytes = bytes.fromhex(
-                os.getenv("KEEP_ALIVE_VERSION", constants.KEEP_ALIVE_VERSION.hex())
-            )
-        except ValueError as e:
-            logger.critical(
-                f"加载协议参数时发生十六进制转换错误: {e}。请检查 .env 文件或环境变量。"
-            )
-            sys.exit(f"配置错误: {e}")
-
-        # 加载 ROR 状态 (布尔值)
-        self.ror_status: bool = (
-            os.getenv("ROR_STATUS", str(False)).lower()
-            in constants.BOOLEAN_TRUE_STRINGS
-        )
-
-        # 加载网络配置
-        self.dhcp_address: str = os.getenv("DHCP_SERVER", constants.DEFAULT_DHCP_SERVER)
-        self.primary_dns: str = os.getenv("PRIMARY_DNS", constants.DEFAULT_PRIMARY_DNS)
-
-        # 配置项校验
-        required_configs = {
-            "服务器地址 (SERVER_IP)": self.server_address,
-            "用户名 (USERNAME)": self.username,
-            "密码 (PASSWORD)": self.password,
-            "本机IP (HOST_IP)": self.host_ip and self.host_ip != "0.0.0.0",
-            "MAC 地址 (MAC)": self.mac_address != 0,
-        }
-        missing_configs = [
-            name for name, value in required_configs.items() if not value
-        ]
-
-        if missing_configs:
-            details = "; ".join(missing_configs)
-            error_msg = (
-                f"缺少必要的配置项: {details}。请检查网络连接、.env 文件或环境变量。"
-            )
-            logger.critical(error_msg)
-            sys.exit(error_msg)
-
-        logger.info("所有配置加载成功。")
 
     def _perform_challenge(
         self, max_retries: int = constants.MAX_RETRIES_CHALLENGE
