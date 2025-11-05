@@ -11,6 +11,7 @@ import os
 import random
 import socket
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -61,7 +62,6 @@ class DrcomCore:
         password (str): 密码。
         host_ip (str): 本机 IP 地址。
         mac_address (int): 本机 MAC 地址的整数表示。
-        # ... (其他配置属性) ...
         salt (bytes): 当前有效的 Challenge Salt。
         auth_info (bytes): 登录成功后获取的认证信息 (Tail)，用于心跳。
         login_success (bool): 当前是否处于登录成功状态。
@@ -77,12 +77,15 @@ class DrcomCore:
         self.salt: bytes = b""
         self.auth_info: bytes = b""
         self.login_success: bool = False
-        self.core_socket: Optional[socket.socket] = None  # 初始化为 None
+        self.core_socket: Optional[socket.socket] = None
 
         # 初始化 Keep Alive 2 状态
         self.keep_alive_serial_num: int = 0
         self.keep_alive_tail: bytes = b"\x00\x00\x00\x00"  # 初始 tail 通常是 0
         self._ka2_initialized: bool = False  # 标记 KA2 初始化序列是否完成
+
+        self._heartbeat_stop_event = threading.Event()
+        self._heartbeat_thread: Optional[threading.Thread] = None
 
         try:
             self._load_config()  # 加载所有配置
@@ -94,6 +97,8 @@ class DrcomCore:
             sys.exit(f"初始化过程中发生致命错误: {e}")
 
         logger.info("Dr.Com-Core 初始化成功。")
+
+    # 内部核心逻辑 (Internal Methods)
 
     def _init_socket(self) -> None:
         """初始化 UDP 网络套接字并绑定到指定 IP 和端口。"""
@@ -339,7 +344,7 @@ class DrcomCore:
 
         logger.info("所有配置加载成功。")
 
-    def perform_challenge(
+    def _perform_challenge(
         self, max_retries: int = constants.MAX_RETRIES_CHALLENGE
     ) -> bool:
         """
@@ -351,7 +356,7 @@ class DrcomCore:
         Returns:
             bool: 成功获取 Salt 则返回 True，否则返回 False。
         """
-        logger.info("正在执行 Challenge 过程...")
+        logger.info("正在执行 [内部] Challenge 过程...")
         if not self.core_socket:
             logger.error("Challenge 失败：网络套接字未初始化。")
             return False
@@ -399,7 +404,7 @@ class DrcomCore:
         self.salt = b""  # 清空 salt
         return False
 
-    def perform_login(self, max_retries: int = constants.MAX_RETRIES_LOGIN) -> bool:
+    def _perform_login(self, max_retries: int = constants.MAX_RETRIES_LOGIN) -> bool:
         """
         执行登录认证过程。
 
@@ -409,7 +414,7 @@ class DrcomCore:
         Returns:
             bool: 登录成功则返回 True，否则返回 False。
         """
-        logger.info("正在执行登录认证...")
+        logger.info("正在执行 [内部] Login 过程...")
         if not self.core_socket:
             logger.error("登录失败：网络套接字未初始化。")
             return False
@@ -688,78 +693,12 @@ class DrcomCore:
             return response_data
         except socket.timeout:
             logger.warning(f"{log_prefix} 响应超时。")
-            raise  # 将超时异常抛给调用者 (start_keep_alive 或 _manage_keep_alive2_sequence) 处理
+            raise  # 将超时异常抛给调用者 (_heartbeat_loop 或 _manage_keep_alive2_sequence) 处理
         except socket.error as e:
             logger.error(f"{log_prefix} 时发生 Socket 错误: {e}")
             raise  # 将 Socket 错误抛给调用者处理
 
-    def start_keep_alive(self) -> None:
-        """
-        启动心跳维持循环。
-        循环发送 Keep Alive 1 (FF 包) 和 Keep Alive 2 (07 包) 序列。
-        如果发生错误或超时，将中断循环。
-        """
-        if not self.login_success or not self.auth_info:
-            logger.error("无法启动心跳：尚未登录或缺少认证信息。")
-            return
-        if not self.core_socket:
-            logger.error("无法启动心跳：网络套接字未初始化。")
-            return
-
-        logger.info("开始发送心跳包...")
-        try:
-            # 重置/初始化 KA2 状态
-            self.keep_alive_serial_num = 0
-            self.keep_alive_tail = b"\x00\x00\x00\x00"
-            self._ka2_initialized = False
-
-            while True:
-                # 发送 Keep Alive 1 (FF 包)
-                keep_alive1_packet = self._build_keep_alive1_packet()
-                if not keep_alive1_packet:
-                    logger.error("构建 Keep Alive 1 失败，心跳中断。")
-                    break
-
-                try:
-                    logger.debug("发送 Keep Alive 1 (FF)...")
-                    ka1_response = self._send_and_receive_ka("KA1", keep_alive1_packet)
-                    if not ka1_response:
-                        logger.warning(
-                            "Keep Alive 1 未收到有效响应或发生错误，可能已掉线。"
-                        )
-                        break  # 中断心跳
-                    # 解析 KA1 响应（可选，目前只检查 Code）
-                    if not parse_keep_alive1_response(ka1_response):
-                        logger.warning("Keep Alive 1 响应解析失败，可能已掉线。")
-                        break
-
-                except socket.timeout:
-                    logger.warning("Keep Alive 1 响应超时，可能已掉线。")
-                    break
-                except socket.error as e_ka1:
-                    logger.error(f"发送或接收 Keep Alive 1 时发生 Socket 错误: {e_ka1}")
-                    break
-
-                # 执行 Keep Alive 2 (07 包) 序列
-                if not self._manage_keep_alive2_sequence():
-                    logger.error("Keep Alive 2 序列执行失败，心跳中断。")
-                    break  # KA2 序列失败，中断心跳
-
-                # 等待间隔
-                logger.debug(
-                    f"等待 {constants.SLEEP_KEEP_ALIVE_INTERVAL} 秒发送下一轮心跳..."
-                )
-                time.sleep(constants.SLEEP_KEEP_ALIVE_INTERVAL)
-
-        except KeyboardInterrupt:
-            logger.info("心跳循环收到中断信号。")
-        except Exception as e:
-            logger.error(f"心跳循环中发生意外错误: {e}", exc_info=True)
-        finally:
-            logger.info("心跳循环结束。")
-            self.login_success = False  # 标记为未登录
-
-    def perform_logout(self) -> None:
+    def _perform_logout(self) -> None:
         """
         执行登出操作 (Code 0x06)。
         这是一个“尽力而为”的操作，失败时不重试。
@@ -772,12 +711,12 @@ class DrcomCore:
             logger.warning("尝试登出但网络套接字未初始化。")
             return
 
-        logger.info("正在尝试执行登出...")
+        logger.info("正在尝试执行 [内部] Logout 过程...")
         original_salt = self.salt
-        logout_success = False
 
         try:
-            logout_challenge_ok = self.perform_challenge(
+            # 调用内部方法 _perform_challenge
+            logout_challenge_ok = self._perform_challenge(
                 max_retries=constants.MAX_RETRIES_LOGOUT_CHALLENGE
             )
             if not logout_challenge_ok:
@@ -833,16 +772,12 @@ class DrcomCore:
                 )
                 if resp_success:
                     logger.info(f"登出响应解析结果: {message}")
-                    logout_success = True
                 else:
                     logger.warning(f"登出响应解析结果: {message}")
-                    logout_success = True
             except socket.timeout:
                 logger.info("发送登出包后未收到响应 (正常情况)。")
-                logout_success = True
             except socket.error as sock_err_recv:
                 logger.warning(f"接收登出响应时发生 Socket 错误: {sock_err_recv}")
-                logout_success = True
 
         except socket.error as sock_err_send:
             logger.error(f"发送登出包时发生 Socket 错误: {sock_err_send}")
@@ -858,57 +793,148 @@ class DrcomCore:
             self._ka2_initialized = False
             logger.info("登出流程结束。本地状态已清理 (包括 Keep Alive)。")
 
-    def run(self) -> None:
-        """启动认证和心跳的主循环。"""
-        logger.info("启动 Dr.Com 核心认证流程...")
-        try:
-            while True:
-                if not self.login_success:
-                    logger.info("当前未登录，尝试进行认证...")
-                    if self.perform_challenge():
-                        if self.perform_login():
-                            logger.info("登录成功，启动心跳维持...")
-                            self.start_keep_alive()
-                            logger.info("心跳已停止，将尝试重新认证。")
-                        else:
-                            logger.error("登录过程失败，无法继续。")
-                            logger.info(
-                                f"程序将在 {constants.SLEEP_LOGIN_FAIL_EXIT} 秒后退出。"
-                            )
-                            time.sleep(constants.SLEEP_LOGIN_FAIL_EXIT)
-                            break
-                    else:
-                        logger.error("Challenge 失败，无法进行登录。")
-                        logger.info(
-                            f"将在 {constants.SLEEP_CHALLENGE_FAIL_RETRY} 秒后重试 Challenge..."
-                        )
-                        time.sleep(constants.SLEEP_CHALLENGE_FAIL_RETRY)
-                else:
-                    logger.warning(
-                        "检测到异常状态 (login_success=True 但未在心跳中)，"
-                        f"将在 {constants.SLEEP_ABNORMAL_STATE_RETRY} 秒后强制重置状态并尝试重新认证。"
-                    )
-                    self.login_success = False
-                    time.sleep(constants.SLEEP_ABNORMAL_STATE_RETRY)
+    # 公开 API
 
-        except KeyboardInterrupt:
-            logger.info("用户请求退出 (Ctrl+C)。")
-        except SystemExit as e:
-            logger.info(f"程序因调用 sys.exit() 而退出: {e}")
-        except Exception as e:
-            logger.critical(f"主循环发生严重错误，程序即将退出: {e}", exc_info=True)
-        finally:
-            logger.info("执行最终清理...")
-            if self.core_socket:
-                self.perform_logout()
+    def login(self) -> bool:
+        """
+        执行完整的登录流程（Challenge + Login）。
+        成功则返回 True 并设置好内部状态 (self.auth_info)，失败则返回 False。
+        """
+        logger.info("API: 收到 login() 请求...")
+        if self.login_success:
+            logger.info("API: 已登录，无需重复操作。")
+            return True
 
-            if self.core_socket and not self.core_socket._closed:
-                try:
-                    self.core_socket.close()
-                    logger.info("网络套接字已关闭。")
-                except Exception as e_close:
-                    logger.error(f"最终关闭 socket 时出错: {e_close}")
+        # 调用内部方法
+        if self._perform_challenge():
+            if self._perform_login():
+                logger.info("API: 登录成功。")
+                return True
             else:
-                logger.debug("最终清理：网络套接字不存在或已关闭。")
+                logger.error("API: 登录过程失败。")
+                return False
+        else:
+            logger.error("API: Challenge 过程失败。")
+            return False
 
-            logger.info("Dr.Com Core 已停止。")
+    def _heartbeat_loop(self) -> None:
+        """
+        心跳维持的内部循环。
+        此方法应在单独的线程中运行，并通过 self._heartbeat_stop_event 控制。
+        """
+
+        # 0. 启动检查
+        if not self.login_success or not self.auth_info:
+            logger.error("心跳线程启动失败：尚未登录或缺少认证信息。")
+            return
+        if not self.core_socket:
+            logger.error("心跳线程启动失败：网络套接字未初始化。")
+            return
+
+        logger.info("心跳线程已启动，开始维持在线状态...")
+
+        try:
+            # 1. 重置/初始化 KA2 (0x07) 状态
+            #    无论何时开始新的心跳循环，都应重新初始化序列号
+            self.keep_alive_serial_num = 0
+            self.keep_alive_tail = b"\x00\x00\x00\x00"
+            self._ka2_initialized = False
+            logger.debug("Keep Alive 2 状态已重置。")
+
+            # 2. 开始心跳主循环
+            #    循环条件变为检查“停止事件”是否被设置
+            while not self._heartbeat_stop_event.is_set():
+                # 步骤 A: 执行 Keep Alive 1 (FF 包)
+                ka1_packet = self._build_keep_alive1_packet()
+                if not ka1_packet:
+                    logger.error("构建 Keep Alive 1 (FF) 失败，心跳中断。")
+                    break
+
+                try:
+                    logger.debug("发送 Keep Alive 1 (FF)...")
+                    ka1_response = self._send_and_receive_ka("KA1 (FF)", ka1_packet)
+
+                    if not ka1_response:
+                        logger.warning("Keep Alive 1 (FF) 未收到有效响应，可能已掉线。")
+                        break
+
+                    # 解析 KA1 响应（目前仅检查 Code 0x07）
+                    if not parse_keep_alive1_response(ka1_response):
+                        logger.warning("Keep Alive 1 (FF) 响应解析失败，可能已掉线。")
+                        break
+
+                except socket.timeout:
+                    logger.warning("Keep Alive 1 (FF) 响应超时，可能已掉线。")
+                    break
+                except socket.error as e_ka1:
+                    logger.error(
+                        f"发送或接收 Keep Alive 1 (FF) 时发生 Socket 错误: {e_ka1}"
+                    )
+                    break
+                except Exception as e_ka1_other:
+                    logger.error(
+                        f"处理 Keep Alive 1 (FF) 时发生意外错误: {e_ka1_other}",
+                        exc_info=True,
+                    )
+                    break
+
+                # 步骤 B: 执行 Keep Alive 2 (07 包) 序列
+
+                # _manage_keep_alive2_sequence 内部会处理初始化和循环序列
+                if not self._manage_keep_alive2_sequence():
+                    logger.error("Keep Alive 2 (07) 序列执行失败，心跳中断。")
+                    break  # KA2 序列失败，退出 while 循环
+
+                # 步骤 C: 等待间隔
+                logger.debug(
+                    f"本轮心跳完成，等待 {constants.SLEEP_KEEP_ALIVE_INTERVAL} 秒..."
+                )
+
+                was_interrupted = self._heartbeat_stop_event.wait(
+                    timeout=constants.SLEEP_KEEP_ALIVE_INTERVAL
+                )
+
+                if was_interrupted:
+                    # 收到停止信号，跳出循环
+                    logger.info("心跳等待间隔被中断，准备退出循环。")
+                    break
+
+        except Exception as e_loop:
+            # 捕获循环（例如 KA2 状态重置）中发生的意外错误
+            logger.error(f"心跳循环中发生意外错误: {e_loop}", exc_info=True)
+        finally:
+            # 无论循环如何退出，都执行这里：
+            logger.info("心跳线程已停止。")
+            self.login_success = False  # 标记为未登录
+
+    def start_heartbeat(self) -> None:
+        """API: 启动后台心跳维持线程。"""
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            logger.warning("API: 心跳线程已在运行。")
+            return
+
+        logger.info("API: 正在启动心跳线程...")
+        self._heartbeat_stop_event.clear()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            daemon=True,  # 设置为守护线程，主程序退出时它也会退出
+        )
+        self._heartbeat_thread.start()
+
+    def stop_heartbeat(self) -> None:
+        """API: 停止后台心跳维持线程。"""
+        logger.info("API: 正在请求停止心跳线程...")
+        self._heartbeat_stop_event.set()
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            # 等待一段时间确保线程退出
+            self._heartbeat_thread.join(timeout=constants.TIMEOUT_KEEP_ALIVE + 2.0)
+            if self._heartbeat_thread.is_alive():
+                logger.warning("API: 心跳线程未能及时停止。")
+        self._heartbeat_thread = None
+
+    def logout(self) -> None:
+        """API: 停止心跳并执行登出操作。"""
+        logger.info("API: 收到 logout() 请求...")
+        self.stop_heartbeat()  # 停止心跳
+        self._perform_logout()  # 调用内部方法
+        logger.info("API: 登出流程完毕。")
