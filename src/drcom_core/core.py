@@ -760,8 +760,15 @@ class DrcomCore:
                   登录失败（配置错误、网络超时、服务器拒绝等）返回 False。
         """
         logger.info("API: 收到 login() 请求...")
+        # 1. 优先检查心跳线程
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
             logger.info("API: 已登录且心跳正在运行。")
+            return True
+
+        # 2. 检查 self.login_success 标志
+        #    这处理了“登录成功”但“心跳未启动”的状态，防止重复登录。
+        if self.login_success:
+            logger.info("API: 已登录 (心跳未运行)，无需重复登录。")
             return True
 
         # 确保旧线程（如果存在）已停止

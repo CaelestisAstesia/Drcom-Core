@@ -184,12 +184,12 @@ def parse_logout_response(
         return False, msg  # 视为异常
 
     # 情况 3: 收到来自正确服务器的响应
-    response_code = response_data[:1]
+    response_code = response_data[0]
     if response_code == constants.SUCCESS_RESP_CODE:  # b'\x04'
         logger.info("服务器显式返回了成功代码 (0x04)，确认登出。")
         return True, "服务器确认登出成功"
     else:
         # 收到其他代码，视为异常
-        msg = f"收到来自服务器的非预期登出响应代码: {response_code.hex()}"
+        msg = f"收到来自服务器的非预期登出响应代码: {hex(response_code)}"
         logger.warning(msg)
         return False, msg
