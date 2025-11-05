@@ -165,7 +165,12 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.sln.docstates
+*.suo
 
 # Ruff stuff:
 .ruff_cache/
@@ -183,6 +188,3 @@ cython_debug/
 # Personal configurations
 #  These files are personal configurations and should not be shared.
 config.toml
-
-# VS Code
-.vs/
