@@ -53,7 +53,9 @@ class DrcomCore:
     """
     Dr.COM 认证核心逻辑类。
 
-    管理认证状态、网络套接字以及与服务器的交互流程。
+    此类封装了 Dr.COM D 版认证的完整生命周期，包括配置加载、
+    网络初始化、登录、心跳维持和登出。
+    它被设计为可重用的 API 库。
 
     Attributes:
         server_address (str): Dr.COM 服务器 IP 地址。
@@ -64,15 +66,28 @@ class DrcomCore:
         mac_address (int): 本机 MAC 地址的整数表示。
         salt (bytes): 当前有效的 Challenge Salt。
         auth_info (bytes): 登录成功后获取的认证信息 (Tail)，用于心跳。
-        login_success (bool): 当前是否处于登录成功状态。
-        core_socket (socket.socket): 用于与服务器通信的 UDP 套接字。
+        login_success (bool): 标记当前是否处于登录成功状态。
+        core_socket (Optional[socket.socket]): 用于与服务器通信的 UDP 套接字。
         keep_alive_serial_num (int): Keep Alive 2 (07 包) 的当前序列号。
         keep_alive_tail (bytes): Keep Alive 2 (07 包) 的当前 tail 值。
         _ka2_initialized (bool): 标记 Keep Alive 2 初始化序列是否已完成。
+        _heartbeat_stop_event (threading.Event): 用于通知心跳线程停止的事件。
+        _heartbeat_thread (Optional[threading.Thread]): 心跳维持线程对象。
     """
 
     def __init__(self) -> None:
-        """初始化 DrcomCore 类，加载配置并初始化网络。"""
+        """
+        初始化 DrcomCore 类。
+
+        在实例化时，将自动执行以下操作：
+        1. 初始化内部状态变量。
+        2. 加载 .env 文件或环境变量中的配置 (`_load_config`)。
+        3. 初始化并绑定 UDP 套接字 (`_init_socket`)。
+
+        Raises:
+            RuntimeError: 如果配置加载或套接字初始化失败。
+            SystemExit: 如果缺少关键配置项（如用户名、密码、IP等）。
+        """
         logger.info("Dr.Com-Core 正在初始化...")
         self.salt: bytes = b""
         self.auth_info: bytes = b""
@@ -348,7 +363,7 @@ class DrcomCore:
         self, max_retries: int = constants.MAX_RETRIES_CHALLENGE
     ) -> bool:
         """
-        执行 Challenge 过程，尝试从服务器获取 Salt。
+        [内部] 执行 Challenge 过程，尝试从服务器获取 Salt。
 
         Args:
             max_retries: 最大重试次数。
@@ -406,7 +421,7 @@ class DrcomCore:
 
     def _perform_login(self, max_retries: int = constants.MAX_RETRIES_LOGIN) -> bool:
         """
-        执行登录认证过程。
+        [内部] 执行登录认证过程。
 
         Args:
             max_retries: 最大重试次数。
@@ -509,7 +524,7 @@ class DrcomCore:
 
     def _build_keep_alive1_packet(self) -> Optional[bytes]:
         """
-        构建 Keep Alive 1 (FF 包 / 心跳包 1)。
+        [内部] 构建 Keep Alive 1 (FF 包 / 心跳包 1)。
         调用 keep_alive 模块中的函数实现。
 
         Returns:
@@ -527,7 +542,7 @@ class DrcomCore:
 
     def _manage_keep_alive2_sequence(self) -> bool:
         """
-        管理并发送 Keep Alive 2 (07 包) 序列，并处理响应以更新状态。
+        [内部] 管理并发送 Keep Alive 2 (07 包) 序列，并处理响应以更新状态。
         包含初始化序列 (Type 1 -> Type 1 -> Type 3) 和循环序列 (Type 1 -> Type 3)。
 
         Returns:
@@ -653,7 +668,7 @@ class DrcomCore:
 
     def _send_and_receive_ka(self, log_prefix: str, packet: bytes) -> Optional[bytes]:
         """
-        辅助函数：发送 Keep Alive 包并接收响应。
+        [内部] 辅助函数：发送 Keep Alive 包并接收响应。
 
         Args:
             log_prefix: 用于日志记录的前缀字符串。
@@ -700,9 +715,11 @@ class DrcomCore:
 
     def _perform_logout(self) -> None:
         """
-        执行登出操作 (Code 0x06)。
+        [内部] 执行登出操作 (Code 0x06)。
+
         这是一个“尽力而为”的操作，失败时不重试。
         登出前会尝试获取新的 Challenge Salt。
+        此方法会清理所有内部认证状态。
         """
         if not self.auth_info:
             logger.info("未登录或缺少认证信息 (Auth Info)，无需执行登出操作。")
@@ -785,6 +802,7 @@ class DrcomCore:
             logger.error(f"执行登出操作时发生意外错误: {e}", exc_info=True)
 
         finally:
+            # 无论成功与否，都清理本地状态
             self.login_success = False
             self.auth_info = b""
             self.salt = b""
@@ -793,34 +811,13 @@ class DrcomCore:
             self._ka2_initialized = False
             logger.info("登出流程结束。本地状态已清理 (包括 Keep Alive)。")
 
-    # 公开 API
-
-    def login(self) -> bool:
-        """
-        执行完整的登录流程（Challenge + Login）。
-        成功则返回 True 并设置好内部状态 (self.auth_info)，失败则返回 False。
-        """
-        logger.info("API: 收到 login() 请求...")
-        if self.login_success:
-            logger.info("API: 已登录，无需重复操作。")
-            return True
-
-        # 调用内部方法
-        if self._perform_challenge():
-            if self._perform_login():
-                logger.info("API: 登录成功。")
-                return True
-            else:
-                logger.error("API: 登录过程失败。")
-                return False
-        else:
-            logger.error("API: Challenge 过程失败。")
-            return False
-
     def _heartbeat_loop(self) -> None:
         """
-        心跳维持的内部循环。
+        [内部] 心跳维持的内部循环。
+
         此方法应在单独的线程中运行，并通过 self._heartbeat_stop_event 控制。
+        循环执行 Keep Alive 1 (FF) 和 Keep Alive 2 (07) 序列。
+        如果发生任何网络错误、超时或停止事件，循环将终止。
         """
 
         # 0. 启动检查
@@ -878,6 +875,11 @@ class DrcomCore:
                     )
                     break
 
+                # 检查是否在KA1之后收到了停止信号
+                if self._heartbeat_stop_event.is_set():
+                    logger.info("KA1 后检测到停止信号，退出心跳循环。")
+                    break
+
                 # 步骤 B: 执行 Keep Alive 2 (07 包) 序列
 
                 # _manage_keep_alive2_sequence 内部会处理初始化和循环序列
@@ -890,6 +892,7 @@ class DrcomCore:
                     f"本轮心跳完成，等待 {constants.SLEEP_KEEP_ALIVE_INTERVAL} 秒..."
                 )
 
+                # 使用 Event.wait() 来实现可中断的休眠
                 was_interrupted = self._heartbeat_stop_event.wait(
                     timeout=constants.SLEEP_KEEP_ALIVE_INTERVAL
                 )
@@ -907,10 +910,57 @@ class DrcomCore:
             logger.info("心跳线程已停止。")
             self.login_success = False  # 标记为未登录
 
+    # =========================================================================
+    # 公开 API
+    # =========================================================================
+
+    def login(self) -> bool:
+        """
+        [API] 执行完整的登录流程（Challenge + Login）。
+
+        如果已登录，此方法将直接返回 True。
+        如果未登录，将依次执行 Challenge 和 Login 步骤。
+
+        Returns:
+            bool: 登录成功（或已登录）返回 True，
+                  登录失败（配置错误、网络超时、服务器拒绝等）返回 False。
+        """
+        logger.info("API: 收到 login() 请求...")
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            logger.info("API: 已登录且心跳正在运行。")
+            return True
+
+        # 确保旧线程（如果存在）已停止
+        self.stop_heartbeat()
+
+        # 调用内部方法
+        if self._perform_challenge():
+            if self._perform_login():
+                logger.info("API: 登录成功。")
+                return True
+            else:
+                logger.error("API: 登录过程失败。")
+                return False
+        else:
+            logger.error("API: Challenge 过程失败。")
+            return False
+
     def start_heartbeat(self) -> None:
-        """API: 启动后台心跳维持线程。"""
+        """
+        [API] 启动后台心跳维持线程。
+
+        此方法会启动一个独立的守护线程 (Daemon Thread) 来自动执行心跳循环。
+
+        注意：
+        - 必须在 `login()` 成功后调用。
+        - 如果心跳线程已在运行，此方法会跳过。
+        """
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
             logger.warning("API: 心跳线程已在运行。")
+            return
+
+        if not self.login_success:
+            logger.error("API: 启动心跳失败，请先调用 login() 并确保其返回 True。")
             return
 
         logger.info("API: 正在启动心跳线程...")
@@ -922,7 +972,11 @@ class DrcomCore:
         self._heartbeat_thread.start()
 
     def stop_heartbeat(self) -> None:
-        """API: 停止后台心跳维持线程。"""
+        """
+        [API] 停止后台心跳维持线程。
+
+        此方法会向心跳线程发送停止信号，并等待其退出。
+        """
         logger.info("API: 正在请求停止心跳线程...")
         self._heartbeat_stop_event.set()
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
@@ -931,10 +985,18 @@ class DrcomCore:
             if self._heartbeat_thread.is_alive():
                 logger.warning("API: 心跳线程未能及时停止。")
         self._heartbeat_thread = None
+        logger.info("API: 心跳线程已停止。")
 
     def logout(self) -> None:
-        """API: 停止心跳并执行登出操作。"""
+        """
+        [API] 停止心跳并执行登出操作。
+
+        这是一个完整的清理操作，它会：
+        1. 停止正在运行的心跳线程 (`stop_heartbeat`)。
+        2. 执行“尽力而为”的登出包发送 (`_perform_logout`)。
+        3. 清理本地的所有认证状态（Salt, Auth Info 等）。
+        """
         logger.info("API: 收到 logout() 请求...")
         self.stop_heartbeat()  # 停止心跳
-        self._perform_logout()  # 调用内部方法
+        self._perform_logout()  # 调用内部方法执行登出并清理状态
         logger.info("API: 登出流程完毕。")
