@@ -1,25 +1,53 @@
-# src/tests/test_core/test_core.py
+# tests/test_core/test_core.py
 
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+# 导入我们要测试的类
 from src.drcom_core.core import DrcomCore
 
+# 导入协议模块，以便在 mock 时引用它们
+#
 
-# 这里，我们用它来创建一个干净的 DrcomCore 实例，并模拟掉它加载配置和初始化网络。
+
 @pytest.fixture
-def mocked_core():
+def minimal_config():
     """
-    提供一个 DrcomCore 实例，其 _load_config 和 _init_socket 已被模拟。
+    提供一个最小化的配置字典，以满足 DrcomCore 新的 __init__ 要求。
     """
-    # 使用 patch.object 来模拟特定对象的方法
-    with patch.object(DrcomCore, "_load_config", return_value=None):
-        with patch.object(DrcomCore, "_init_socket", return_value=None):
-            core = DrcomCore()
-            # 我们可以手动设置一些测试所需的属性
-            core.login_success = False
-            yield core  # 'yield' 关键字将 core 实例提供给测试函数
+    return {
+        "SERVER_IP": "1.2.3.4",
+        "USERNAME": "testuser",
+        "PASSWORD": "testpassword",
+        "HOST_IP": "10.1.1.1",
+        "MAC": "001122334455",
+        "DRCOM_PORT": 61440,
+        "BIND_IP": "0.0.0.0",
+        # 其他配置（如 AUTH_VERSION 等）会使用 core.py 里的默认值
+    }
+
+
+@pytest.fixture
+def mocked_core(minimal_config):
+    """
+    提供一个 DrcomCore 实例，其 __init__ 已被正确调用，
+    但网络套接字已被模拟。
+    """
+
+    # 1. 我们 patch _init_socket，因为它会尝试绑定一个真实的网络端口
+    with patch.object(DrcomCore, "_init_socket", return_value=None):
+        # 2. 我们 *正常* 创建 DrcomCore 实例，并传入“依赖注入”的配置
+        core = DrcomCore(config=minimal_config)
+
+        # 3. 因为 _init_socket 被"跳过"了，
+        #    self.core_socket 还是 None。
+        #    我们必须手动给它分配一个 MagicMock 对象，
+        #    以便后续的 .login() 等方法可以使用 .core_socket.sendto()。
+        core.core_socket = MagicMock(spec=socket.socket)
+
+        yield core  # 使用 yield 将 core 实例提供给测试函数
 
 
 # 位于 src/tests/test_core/test_core.py
