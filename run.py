@@ -29,11 +29,10 @@ except ImportError:
 
 # --- 导入 drcom-core API ---
 try:
-    # [关键] 这是“消费者”的导入方式
     from drcom_core import DrcomCore, load_config_from_dict
 except ImportError as ie:
     print(f"导入 DrcomCore API 失败: {ie}", file=sys.stderr)
-    print("你是否忘记在项目根目录运行 'pip install -e .' ?", file=sys.stderr)
+    print("你是否忘记安装whl包 ?", file=sys.stderr)
     sys.exit(1)
 
 

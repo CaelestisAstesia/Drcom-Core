@@ -59,7 +59,7 @@
 
 1.  **代码风格**：请遵循 [PEP 8](https://www.python.org/dev/peps/pep-0008/) 规范。
 2.  **类型提示 (Type Hinting)**：请为所有函数定义和变量添加类型提示（可参考 `src/drcom_protocol/login.py`）。
-3.  **模块化**：核心认证逻辑应保持在 `src/drcom_core/core.py` 中，而协议包的构建和解析应放在 `src/drcom_protocol/` 目录下。
+3.  **模块化**：核心认证逻辑应保持在 `src/drcom_core/` 中，而协议包的构建和解析应放在 `src/drcom_core/protocols/` 目录下。
 
 **提交 PR**：
 
