@@ -27,7 +27,7 @@
 ## 安装
 
 1.  本项目需要 **Python 3.13** 或更高版本，需要网络连接。
-2.  下载最新的Release。
+2.  下载最新的Release软件压缩包，解压。
 3.  安装whl包：
     ```bash
     pip install drcom_core-version-py3-none-any.whl
@@ -46,6 +46,7 @@
     ```bash
     cp .env.example .env
     ```
+    或者删掉文件名里的`.example`
 2.  编辑 `.env` 文件，填入你**自己**的认证信息（如 `USERNAME`, `PASSWORD`, `SERVER_IP`, `MAC` 等）。
 3.  对于部分学校用户，请先参考`drcom-generic`的各校配置文件、其他配置来源，或者简单抓包分析一下，我们暂时没有做到所有的院校都即开即用，仅支持吉林大学（暂时没有来自多种环境的开发者）。
 
