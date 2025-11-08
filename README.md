@@ -2,16 +2,17 @@
 
 [](https://www.gnu.org/licenses/agpl-3.0)
 
-`drcom-core` 是一个基于 Python 3.13+ 开发的第三方 Dr.Com 认证核心库与命令行工具。
+`drcom-core` 是一个基于 Python 3.13+ 开发的第三方 Dr.Com 认证核心库。
 
 本项目基于对 `drcom-generic` 项目和网络数据包 的分析，旨在实现**技术研究**与**互操作性 (Interoperability)**，为 Dr.Com 官方尚未支持的平台提供一个纯粹的 Python 核心库，用于实现基础的网络认证。
 
 ## 特性
 
-  * **现代 Python**：完全使用 Python 3.13+ 重构，包含完整的类型提示 (Type Hinting) 和现代范式。
-  * **API 优先**：封装为 `DrcomCore` 类，提供清晰的 `login()`, `start_heartbeat()`, `logout()` 接口，易于二次开发。
-  * **配置分离**：通过 `.env` 文件管理所有认证参数，代码零侵入。
-  * **健壮的会话管理**：通过 `atexit` 和线程事件 (`threading.Event`) 确保进程的灵活性。
+  * **现代 Python**：完全使用 Python 3.13+ 重构，包含完整的类型提示 (Type Hinting)。
+  * **API 优先**：封装为 `DrcomCore` 类，提供清晰的 `login()`, `start_heartbeat()`, `logout()` 接口，易于二次开发（如 CLI 或 GUI）。
+  * **架构解耦**：采用“引擎 + 策略模式”重构，将协议实现 (`protocols`) 与核心引擎 (`core`)、网络 (`network`)、状态 (`state`) 分离，易于扩展支持 P 版、X 版等新协议。
+  * **配置分离**：通过字典对象注入配置，代码零侵入。
+  * **健壮的会话管理**：通过 `atexit` 钩子和 `threading.Event` 确保进程退出时能自动登出并清理会话。
 
 ## 重要声明与免责
 
@@ -25,42 +26,37 @@
 
 ## 安装
 
-1.  本项目需要 **Python 3.13** 或更高版本。
-2.  克隆本仓库：
+1.  本项目需要 **Python 3.13** 或更高版本，需要网络连接。
+2.  下载最新的Release。
+3.  安装whl包：
     ```bash
-    git clone https://github.com/CaelestisAstesia/Drcom-Core.git
-    cd Drcom-Core
+    pip install drcom_core-version-py3-none-any.whl
     ```
-3.  安装依赖：
-    ```bash
-    pip install -r requirements.txt
-    ```
+4.  把run.py放在你认为方便的任何位置。
 
 ## 使用
 
-本项目既可以作为即开即用的**命令行工具**运行，也可以作为**库**导入到你自己的项目中。
+本项目既可以作为即开即用的**命令行软件**运行，也可以作为**库**导入到你自己的项目中。
 
 ### 1\. 配置
 
-无论使用哪种方式，你都必须先创建配置文件：
+无论使用哪种方式，你都必须先在run.py的同级目录创建配置文件：
 
 1.  复制配置模板：
     ```bash
     cp .env.example .env
     ```
 2.  编辑 `.env` 文件，填入你**自己**的认证信息（如 `USERNAME`, `PASSWORD`, `SERVER_IP`, `MAC` 等）。
-3.  对于部分学校用户，请先参考`drcom-generic`的各校配置文件、其他配置来源，或者简单抓包分析一下，我们暂时没有做到所有的院校都即开即用（暂时没有来自多种环境的开发者）。
+3.  对于部分学校用户，请先参考`drcom-generic`的各校配置文件、其他配置来源，或者简单抓包分析一下，我们暂时没有做到所有的院校都即开即用，仅支持吉林大学（暂时没有来自多种环境的开发者）。
 
 
 ### 2\. 作为命令行工具（简单实现）
 
-配置好 `.env` 文件后，直接在项目根目录运行 `src/main.py` 模块：
-
-```bash
-python -m src.main
-```
-
-程序将会自动读取 `.env` 配置，执行登录，启动后台心跳，并保持在线。
+配置好 `.env` 文件后，直接运行`run.py`：
+    ```bash
+    python run.py
+    ```
+程序将会自动读取 `.env` 配置，执行登录，启动心跳，并保持在线。
 
 按 `Ctrl+C` 退出，程序会自动调用登出。
 
@@ -68,7 +64,7 @@ python -m src.main
 
 你可以 `import DrcomCore` 到你自己的 Python 项目中。
 
-我们提供了一个完整的最小示例，请参考项目根目录下的 `example.py` 文件。
+我们提供了一个完整(但并非最小的)示例，请参考根目录下的 `run.py` 文件。
 
 ## 贡献
 
