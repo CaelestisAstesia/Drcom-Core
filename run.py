@@ -74,7 +74,7 @@ def setup_logging(log_dir: Path):
     # 4. 获取我们关心的两个 Logger，并应用配置
 
     # a) "drcom_core" (库的所有日志)
-    #    (drcom_core/core.py, drcom_core/network.py, drcom_protocol/challenge.py
+    #    (drcom_core/core.py, drcom_core/network.py,
     #     等文件中的 getLogger(__name__) 都会是这个 logger 的子孙)
     lib_logger = logging.getLogger("drcom_core")
     lib_logger.setLevel(logging.DEBUG)  # 必须设置 Logger 级别为最低 (DEBUG)
