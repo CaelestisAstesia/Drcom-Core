@@ -15,11 +15,11 @@ import socket  # 只导入 socket.error 和 socket.timeout 用于异常处理
 import time
 from typing import TYPE_CHECKING, Optional
 
+# 导入协议层和常量
+from . import challenge, constants, keep_alive, login, logout
+
 # 导入协议基类
 from .base import BaseProtocol
-
-# 导入协议层和常量
-from .protocols import challenge, constants, keep_alive, login, logout
 
 # 避免循环导入，仅用于类型提示
 if TYPE_CHECKING:

@@ -141,7 +141,7 @@ def main() -> None:
 
     try:
         # 2. (应用层) 加载原始配置
-        raw_config_dict = load_env_config()
+        raw_config_dict = load_env_config(project_root)
 
         # 3. [API] 使用库来解析和验证配置
         #    如果缺少关键键或格式错误 (如MAC)，这里会抛出异常
