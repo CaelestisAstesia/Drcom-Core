@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 # 从协议层导入默认值
-from .drcom_protocol import constants
+from .protocols import constants
 
 logger = logging.getLogger(__name__)
 

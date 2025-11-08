@@ -21,14 +21,14 @@ from typing import Optional
 
 # 导入核心服务
 from .config import DrcomConfig
+from .network import NetworkClient
 
 # 导入协议层依赖
-from .drcom_protocol import constants
-from .network import NetworkClient
+from .protocols import constants
 
 # 导入协议策略接口和具体实现
 from .protocols.base import BaseProtocol
-from .protocols.d_version import D_Protocol  # [策略1] D 版
+from .protocols.version_520d import D_Protocol  # [策略1] D 版
 from .state import DrcomState
 
 # from .protocols.p_version import P_Protocol  # [策略2] P 版 (未来扩展)
