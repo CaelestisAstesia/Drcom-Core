@@ -7,8 +7,8 @@ build-backend = "setuptools.build_meta"
 [project]
 # --- 核心元数据 ---
 name = "drcom-core"
-version = "0.1.0" #
-description = "Dr.COM 认证核心库 (D版)"
+version = "1.0.0-alpha.1" #
+description = "Dr.COM 认证核心库 (5.2.0 D版实现)"
 readme = "README.md"
 license = { file = "LICENSE" } #
 requires-python = ">=3.13"
@@ -16,16 +16,26 @@ requires-python = ">=3.13"
 # --- 依赖 ---
 # 这是库的核心依赖。
 dependencies = [
-    "netifaces>=0.11.0" #
+    "python-dotenv>=1.0.0",
+    "netifaces>=0.11.0"
 ]
 
 # --- 分类器 (用于 PyPI) ---
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Affero General Public License v3", #
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPLv3)",
     "Operating System :: OS Independent",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Intended Audience :: Developers",
+    "Topic :: System :: Networking :: Authentication",
 ]
+
+# --- 项目链接 ---
+[project.urls]
+Homepage = "https://github.com/CaelestisAstesia/Drcom-Core"
+Repository = "https://github.com/CaelestisAstesia/Drcom-Core"
+Issues = "https://github.com/CaelestisAstesia/Drcom-Core/issues"
 
 # --- 包查找配置 ---
 [tool.setuptools.packages.find]
