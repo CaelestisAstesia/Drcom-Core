@@ -1,11 +1,11 @@
-# /src/drcom_protocol/login.py
+# src/drcom_core/drcom_protocol/login.py
 """
-处理 Dr.COM D 版登录认证 (Code 0x03) 请求包的构建、发送以及响应包的解析。
+处理 Dr.COM D 版登录认证 (Code 0x03) 请求包的构建与解析。
+本模块只负责包的构建和解析，不执行网络 I/O。
 """
 
 import hashlib
 import logging
-import socket
 import struct
 from typing import Optional, Tuple
 
@@ -14,7 +14,6 @@ from . import constants
 
 # 获取当前模块的 logger 实例
 logger = logging.getLogger(__name__)
-# 日志级别和处理器通常在 main.py 配置
 
 
 def _calculate_checksum(data: bytes) -> bytes:
@@ -49,11 +48,13 @@ def build_login_packet(
     password: str,
     salt: bytes,
     mac_address: int,
-    host_ip: str,
+    # ---
+    host_ip_bytes: bytes,
     host_name: str,
     host_os: str,
-    primary_dns: str,
-    dhcp_server: str,
+    primary_dns_bytes: bytes,
+    dhcp_server_bytes: bytes,
+    # ---
     control_check_status: bytes,
     adapter_num: bytes,
     ipdog: bytes,
@@ -68,11 +69,11 @@ def build_login_packet(
         password: 密码。
         salt: 4字节 Challenge Salt。
         mac_address: MAC 地址的整数表示。
-        host_ip: 本机 IP 地址。
+        host_ip_bytes: 本机 IP 地址 (4字节)
         host_name: 主机名。
         host_os: 操作系统标识字符串。
-        primary_dns: 主 DNS 服务器地址。
-        dhcp_server: DHCP 服务器地址。
+        primary_dns_bytes: 主 DNS 服务器地址 (4字节)
+        dhcp_server_bytes: DHCP 服务器地址 (4字节)
         control_check_status: 控制检查状态字节。
         adapter_num: 适配器数字节。
         ipdog: IPDOG 标志字节。
@@ -83,7 +84,7 @@ def build_login_packet(
         bytes: 构建完成的登录请求数据包。
 
     Raises:
-        ValueError: 如果输入参数无效 (如 salt 长度错误, IP 格式错误等)。
+        ValueError: 如果输入参数无效 (如 salt 长度错误等)。
     """
     logger.debug("开始构建登录数据包...")
     # 参数校验
@@ -137,9 +138,7 @@ def build_login_packet(
     # 5. MAC 地址异或
     mac_xor_md5_part = md5a[: constants.MAC_XOR_PADDING_LENGTH]
     try:
-        md5_part_int = int.from_bytes(
-            mac_xor_md5_part, byteorder="big"
-        )  # 假设是网络序(big-endian)
+        md5_part_int = int.from_bytes(mac_xor_md5_part, byteorder="big")
         xor_result = md5_part_int ^ mac_address
         # 转换为字节串，确保长度正确
         xor_bytes = xor_result.to_bytes(
@@ -166,14 +165,16 @@ def build_login_packet(
 
     # 7. IP 地址信息
     data += b"\x01"  # 固定为 1 个 IP
-    try:
-        host_ip_bytes = socket.inet_aton(host_ip)
-        data += host_ip_bytes
-        data += b"\x00" * constants.IP_ADDR_PADDING_LENGTH  # 填充
-        logger.debug(f"步骤 7: 添加本机 IP 地址 = {host_ip_bytes.hex()}")
-    except OSError:
-        logger.error(f"无法构建登录包：提供的主机 IP 地址 '{host_ip}' 格式无效。")
-        raise ValueError(f"无效的主机 IP 地址: {host_ip}") from None
+
+    # [重构] 不再调用 socket.inet_aton，直接使用传入的字节
+    if len(host_ip_bytes) != 4:
+        raise ValueError(
+            f"无效的 host_ip_bytes，长度不为 4 (实际: {len(host_ip_bytes)})"
+        )
+    data += host_ip_bytes
+
+    data += b"\x00" * constants.IP_ADDR_PADDING_LENGTH  # 填充
+    logger.debug(f"步骤 7: 添加本机 IP 地址 = {host_ip_bytes.hex()}")
 
     # 8. MD5_C (Checksum 1)
     md5c_input = data + constants.MD5C_SUFFIX
@@ -193,21 +194,17 @@ def build_login_packet(
     logger.debug("步骤 10: 添加主机名 (填充)")
 
     # 11. DNS 和 DHCP 服务器 IP
-    try:
-        data += socket.inet_aton(primary_dns)
-        data += socket.inet_aton(dhcp_server)
-    except OSError as e:
-        logger.error(
-            f"无法构建登录包：提供的 DNS ({primary_dns}) 或 DHCP ({dhcp_server}) 服务器地址格式无效。"
-        )
-        raise ValueError("无效的 DNS 或 DHCP 服务器地址") from e
+    if len(primary_dns_bytes) != 4 or len(dhcp_server_bytes) != 4:
+        raise ValueError("无效的 DNS 或 DHCP 字节，长度不为 4")
+
+    data += primary_dns_bytes
+    data += dhcp_server_bytes
+
     data += constants.SECONDARY_DNS_DEFAULT
     data += constants.WINS_SERVER_DEFAULT
     logger.debug("步骤 11: 添加 DNS, DHCP, 次 DNS, WINS 地址")
 
-    # 12 & 13. 操作系统信息 (使用配置或默认值)
-    # 这部分模拟性较强，可以直接用字节串拼接
-    # 使用常量或直接写死
+    # 12 & 13. 操作系统信息
     data += b"\x94\x00\x00\x00"  # OSVersionInfoSize
     data += b"\x0a\x00\x00\x00"  # MajorVersion (Win10/11)
     data += b"\x00\x00\x00\x00"  # MinorVersion
@@ -224,7 +221,6 @@ def build_login_packet(
     # 15. ROR 加密密码部分 (占位符)
     if ror_status:
         logger.warning("步骤 15: ROR 状态已启用，但 ROR 加密逻辑尚未实现！")
-        # ROR 逻辑未实现
     else:
         logger.debug("步骤 15: ROR 状态未启用，跳过 ROR 加密部分。")
 
@@ -259,7 +255,6 @@ def build_login_packet(
         logger.debug("步骤 17: 添加 AutoLogout 和 BroadcastMode")
     else:
         logger.debug("步骤 17: ROR 模式，跳过 AutoLogout 和 BroadcastMode")
-        pass  # ROR 模式下，根据某些实现会填充其他字节，这里先跳过
 
     # 18. 末尾未知字节
     data += constants.LOGIN_PACKET_ENDING
@@ -267,31 +262,6 @@ def build_login_packet(
 
     logger.info(f"登录数据包构建完成，总长度: {len(data)} 字节。")
     return data
-
-
-# 发送登录包函数
-def send_login_request(
-    sock: socket.socket, server_address: str, drcom_port: int, packet: bytes
-) -> None:
-    """
-    发送已构建的登录请求包到服务器。
-
-    Args:
-        sock: UDP socket 对象。
-        server_address: 服务器 IP 地址。
-        drcom_port: 服务器端口。
-        packet: 登录请求包 (bytes)。
-
-    Raises:
-        socket.error: 发送失败时抛出。
-    """
-    logger.info("正在发送登录请求...")
-    try:
-        sock.sendto(packet, (server_address, drcom_port))
-        logger.debug(f"已发送登录数据包: {packet.hex()}")
-    except socket.error as e:
-        logger.error(f"发送登录包失败: {e}")
-        raise
 
 
 # 解析登录响应函数
@@ -343,7 +313,7 @@ def parse_login_response(
         # 尝试提取错误代码
         if len(response_data) > constants.ERROR_CODE_INDEX:
             error_code = response_data[constants.ERROR_CODE_INDEX]
-            # 错误代码到消息的映射 (可以移到 constants.py 或保持在此处)
+            # 错误代码到消息的映射
             error_map = {
                 constants.ERROR_CODE_IN_USE: "账号正在使用中或认证 MAC/IP 不匹配",
                 constants.ERROR_CODE_SERVER_BUSY: "服务器繁忙",
@@ -356,7 +326,6 @@ def parse_login_response(
                 constants.ERROR_CODE_WRONG_VERSION: "客户端版本不匹配或账号被禁用",
                 constants.ERROR_CODE_WRONG_IP_MAC: "IP 和 MAC 地址同时绑定错误",
                 constants.ERROR_CODE_FORCE_DHCP: "服务器要求使用 DHCP 获取 IP",
-                # 可以根据需要添加更多错误代码
             }
             error_detail = error_map.get(error_code, "未知错误")
             error_message += f" (错误码: {hex(error_code)}) - {error_detail}"

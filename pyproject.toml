@@ -1,0 +1,32 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# --- 核心元数据 ---
+name = "drcom-core"
+version = "0.1.0" #
+description = "Dr.COM 认证核心库 (D版)"
+readme = "README.md"
+license = { file = "LICENSE" } #
+requires-python = ">=3.13"
+
+# --- 依赖 ---
+# 这是库的核心依赖。
+dependencies = [
+    "netifaces>=0.11.0" #
+]
+
+# --- 分类器 (用于 PyPI) ---
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Affero General Public License v3", #
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# --- 包查找配置 ---
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,11 +1,11 @@
-# /src/drcom_protocol/logout.py
+# src/drcom_core/drcom_protocol/logout.py
 """
-处理 Dr.COM D 版登出 (Code 0x06) 请求包的构建、发送以及响应的解析。
+处理 Dr.COM D 版登出 (Code 0x06) 请求包的构建以及响应的解析。
+本模块只负责包的构建和解析，不执行网络 I/O。
 """
 
 import hashlib
 import logging
-import socket
 from typing import Optional, Tuple
 
 # 从常量模块导入所需常量
@@ -108,7 +108,7 @@ def build_logout_packet(
         raise ValueError("MAC 地址异或计算时发生溢出错误") from None
     except Exception as e:
         logger.error(f"MAC 地址异或计算失败: {e}", exc_info=True)
-        # 在登出包中，即使异或失败也继续，但填充0可能导致服务器不识别
+        # 即使异或失败也继续，但填充0可能导致服务器不识别
         packet += b"\x00" * constants.MAC_XOR_PADDING_LENGTH
         logger.warning("MAC 异或计算失败，填充零字节继续构建登出包。")
 
@@ -120,28 +120,7 @@ def build_logout_packet(
     return packet
 
 
-def send_logout_request(
-    sock: socket.socket, server_address: str, drcom_port: int, packet: bytes
-) -> None:
-    """
-    发送已构建的登出请求包到服务器。
-
-    Args:
-        sock: UDP socket 对象。
-        server_address: 服务器 IP 地址。
-        drcom_port: 服务器端口。
-        packet: 登出请求包 (bytes)。
-
-    Raises:
-        socket.error: 发送失败时抛出。
-    """
-    logger.info("正在发送登出请求...")
-    try:
-        sock.sendto(packet, (server_address, drcom_port))
-        logger.debug(f"已发送登出数据包: {packet.hex()}")
-    except socket.error as e:
-        logger.error(f"发送登出包失败: {e}")
-        raise
+# [重构] 删除了 send_logout_request 函数
 
 
 def parse_logout_response(
@@ -161,7 +140,7 @@ def parse_logout_response(
 
     Returns:
         tuple: (is_success, message)
-            - is_success (bool): 登出是否可以视为成功（发送后未收到错误响应或收到成功响应）。
+            - is_success (bool): 登出是否可以视为成功。
             - message (str): 描述结果的消息。
     """
     logger.debug(
@@ -185,7 +164,7 @@ def parse_logout_response(
 
     # 情况 3: 收到来自正确服务器的响应
     response_code = response_data[0]
-    if response_code == constants.SUCCESS_RESP_CODE:  # b'\x04'
+    if response_code == constants.SUCCESS_RESP_CODE:  # 0x04
         logger.info("服务器显式返回了成功代码 (0x04)，确认登出。")
         return True, "服务器确认登出成功"
     else:

@@ -1,39 +1,57 @@
-# src/drcom_protocol/constants.py
+# src/drcom_core/drcom_protocol/constants.py
+"""
+Dr.COM 协议层 - 常量
 
-# Core Logic Constants
-DEFAULT_SERVER_IP = "10.100.61.3"
+定义所有协议相关的魔法数字、偏移量、默认值。
+"""
+
+# Core Logic Constants (Default values used by Config)
+# ---------------------------------------------------
+# 这些是 Config 模块 会用到的默认值
 DEFAULT_DRCOM_PORT = 61440
-DEFAULT_CAMPUS_IP_PREFIX = "49."
-DEFAULT_AUTO_DETECT_INTERFACE = True
-
 DEFAULT_HOST_NAME = "Windows 10 PC"
 DEFAULT_HOST_OS = "Windows 10"
-DEFAULT_DHCP_SERVER = "0.0.0.0"  # 似乎未使用
+DEFAULT_DHCP_SERVER = "0.0.0.0"
 DEFAULT_PRIMARY_DNS = "114.114.114.114"
+# Keep Alive 2 的默认版本号
+KEEP_ALIVE_VERSION = b"\xdc\x02"
 
-# Socket Timeouts
+
+# Socket Timeouts (Used by Core/Network layers)
+# ---------------------------------------------------
 TIMEOUT_CHALLENGE = 3  # Challenge 请求/响应超时
 TIMEOUT_LOGIN = 5  # Login 响应超时
 TIMEOUT_LOGOUT = 2  # Logout 响应超时 (通常较短)
 TIMEOUT_KEEP_ALIVE = 3  # Keep-Alive 响应超时
 
-# Retry Logic
+
+# Retry Logic (Used by Core layer)
+# ---------------------------------------------------
 MAX_RETRIES_CHALLENGE = 5
 MAX_RETRIES_LOGIN = 3
 MAX_RETRIES_LOGOUT_CHALLENGE = 1  # 登出前尝试获取 salt 的次数
 
-# Sleep Durations
+
+# Sleep Durations (Used by Core layer)
+# ---------------------------------------------------
 SLEEP_SOCKET_ERROR = 1.0  # Socket 错误后等待时间
 SLEEP_LOGIN_FAIL_EXIT = 30.0  # 不可重试错误或次数耗尽后退出前的等待时间
 SLEEP_CHALLENGE_FAIL_RETRY = 60.0  # Challenge 失败后重试前的等待时间
 SLEEP_ABNORMAL_STATE_RETRY = 10.0  # 检测到异常状态后重试前的等待时间
 SLEEP_KEEP_ALIVE_INTERVAL = 20.0  # 心跳发送间隔
 
-# Misc
-MAC_SEPARATOR = ":"  # MAC 地址字符串分隔符
+
+# Misc (Used by Config layer)
+# ---------------------------------------------------
 BOOLEAN_TRUE_STRINGS = ("true", "1", "t")  # 用于判断环境变量布尔值的字符串
 
+
+# =========================================================================
+# 协议层常量 (PROTOCOL CONSTANTS)
+# =========================================================================
+
 # Protocol Codes
+# ---------------------------------------------------
 MISC_CODE = b"\x07"  # Keep Alive 2 (07 包) 和 FF 包响应的 Code
 CHALLENGE_REQ_CODE = b"\x01\x02"  # Challenge 请求 Code
 CHALLENGE_RESP_CODE = b"\x02"  # Challenge 响应 Code
@@ -42,14 +60,17 @@ LOGOUT_REQ_CODE = b"\x06"  # Logout 请求 Code
 LOGOUT_TYPE = b"\x01"  # Logout 请求 Type
 KEEP_ALIVE_CLIENT_CODE = b"\xff"  # Keep Alive 1 (FF 包) Code
 
-# Challenge Constants
+
+# Challenge Constants (challenge.py)
+# ---------------------------------------------------
 CHALLENGE_REQ_SUFFIX = b"\x09"
 CHALLENGE_REQ_PADDING_LENGTH = 15
 SALT_START_INDEX = 4
 SALT_END_INDEX = 8
 
-# Login Constants
-LOGIN_PACKET_HEADER_LENGTH = 4  # Code(2) + Type(1) + Length(1)
+
+# Login Constants (login.py)
+# ---------------------------------------------------
 LOGIN_PACKET_LENGTH_OFFSET = 20  # 包长度 = 用户名长度 + 这个偏移
 
 MD5_SALT_PREFIX = (
@@ -76,7 +97,7 @@ HOSTOS_PADDING_SUFFIX_LENGTH = 96
 IP_ADDR_PADDING_LENGTH = 12
 MAC_XOR_PADDING_LENGTH = 6
 
-# Fixed Padding/Values
+# Fixed Padding/Values (Default values for packet building)
 IPDOG_SEPARATOR = b"\x00" * 4
 SECONDARY_DNS_DEFAULT = b"\x00\x00\x00\x00"
 WINS_SERVER_DEFAULT = b"\x00" * 8
@@ -84,7 +105,7 @@ AUTO_LOGOUT_DEFAULT = b"\x00"
 BROADCAST_MODE_DEFAULT = b"\x00"
 LOGIN_PACKET_ENDING = b"\xe9\x13"
 
-# Login Response
+# Login Response (parse_login_response)
 LOGIN_RESP_SUCCESS_CODE = 0x04  # 登录成功响应 Code (整数)
 LOGIN_RESP_FAIL_CODE = 0x05  # 登录失败响应 Code (整数)
 AUTH_INFO_START_INDEX = 23
@@ -104,9 +125,8 @@ ERROR_CODE_TOO_MANY_IP = 0x14
 ERROR_CODE_WRONG_VERSION = 0x15
 ERROR_CODE_WRONG_IP_MAC = 0x16
 ERROR_CODE_FORCE_DHCP = 0x17
-#
 
-# Login No Retry Error Codes (列表，引用上面的常量)
+# Login No Retry Error Codes (Used by Core layer)
 NO_RETRY_ERROR_CODES = [
     ERROR_CODE_WRONG_PASS,
     ERROR_CODE_INSUFFICIENT,
@@ -117,11 +137,12 @@ NO_RETRY_ERROR_CODES = [
     ERROR_CODE_FORCE_DHCP,
 ]
 
-# Keep Alive Constants
+
+# Keep Alive Constants (keep_alive.py)
+# ---------------------------------------------------
 KEEP_ALIVE_RESP_CODE = MISC_CODE  # FF 包和 07 包响应 Code 都是 0x07
 KEEP_ALIVE_EMPTY_BYTES_3 = b"\x00\x00\x00"
 KEEP_ALIVE_EMPTY_BYTES_4 = b"\x00\x00\x00\x00"
-KEEP_ALIVE_VERSION = b"\xdc\x02"  # Keep Alive 2 使用的版本号
 
 # Keep Alive 2 specific constants
 KA2_HEADER_PREFIX = b"\x28\x00\x0b"
@@ -133,5 +154,7 @@ KA2_TYPE3_CRC_DEFAULT = b"\x00" * 4
 KA2_TYPE3_PADDING_END = b"\x00" * 8
 KA2_FIRST_PACKET_VERSION = b"\x0f\x27"
 
-# Logout Constants
+
+# Logout Constants (logout.py)
+# ---------------------------------------------------
 SUCCESS_RESP_CODE = LOGIN_RESP_SUCCESS_CODE  # 登出成功响应 Code (统一为整数 0x04)
