@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/login.py
+# src/drcom_core/protocols/login.py
 """
 处理 Dr.COM D 版登录认证 (Code 0x03) 请求包的构建与解析。
 本模块只负责包的构建和解析，不执行网络 I/O。
@@ -166,7 +166,6 @@ def build_login_packet(
     # 7. IP 地址信息
     data += b"\x01"  # 固定为 1 个 IP
 
-    # [重构] 不再调用 socket.inet_aton，直接使用传入的字节
     if len(host_ip_bytes) != 4:
         raise ValueError(
             f"无效的 host_ip_bytes，长度不为 4 (实际: {len(host_ip_bytes)})"

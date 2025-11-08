@@ -187,7 +187,7 @@ class D_Protocol(BaseProtocol):
             self._reset_state()  # 无论成功与否，都清理本地状态
 
     # =========================================================================
-    # D 版协议的内部辅助方法 (从旧 core.py 迁移而来)
+    # D 版协议的完整内部方法
     # =========================================================================
 
     def _challenge(self, max_retries: int = constants.MAX_RETRIES_CHALLENGE) -> bool:

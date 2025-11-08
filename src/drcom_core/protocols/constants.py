@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/constants.py
+# src/drcom_core/protocols/constants.py
 """
 Dr.COM 协议层 - 常量
 
@@ -9,7 +9,7 @@ Dr.COM 协议层 - 常量
 # ---------------------------------------------------
 # 这些是 Config 模块 会用到的默认值
 DEFAULT_DRCOM_PORT = 61440
-DEFAULT_HOST_NAME = "Windows 10 PC"
+DEFAULT_HOST_NAME = "Lenovo Windows 10 PC"
 DEFAULT_HOST_OS = "Windows 10"
 DEFAULT_DHCP_SERVER = "0.0.0.0"
 DEFAULT_PRIMARY_DNS = "114.114.114.114"

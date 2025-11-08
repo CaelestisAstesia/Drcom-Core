@@ -128,7 +128,7 @@ def load_config_from_dict(raw_config: Dict[str, Any]) -> DrcomConfig:
 
         # 6. 构建 DrcomConfig 对象
         config = DrcomConfig(
-            protocol_version=protocol_version,  # [新增]
+            protocol_version=protocol_version,
             server_address=server_ip,
             username=username,
             password=password,

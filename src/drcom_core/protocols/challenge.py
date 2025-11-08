@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/challenge.py
+# src/drcom_core/protocols/challenge.py
 """
 处理 Dr.COM 认证过程中的 Challenge 请求与响应 (Code 0x01, 0x02)。
 本模块只负责包的构建和解析。
@@ -41,7 +41,6 @@ def build_challenge_request() -> bytes:
 
     except Exception as e:
         logger.error(f"构建 Challenge 请求时发生意外错误: {e}", exc_info=True)
-        # 在这种简单构建中很难出错，但以防万一
         raise ValueError("构建 Challenge 包失败") from e
 
 

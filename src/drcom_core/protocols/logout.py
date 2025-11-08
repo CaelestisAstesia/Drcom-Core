@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/logout.py
+# src/drcom_core/protocols/logout.py
 """
 处理 Dr.COM D 版登出 (Code 0x06) 请求包的构建以及响应的解析。
 本模块只负责包的构建和解析，不执行网络 I/O。

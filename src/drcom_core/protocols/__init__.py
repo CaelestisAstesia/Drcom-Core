@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/__init__.py
+# src/drcom_core/protocols/__init__.py
 """
 Dr.COM 协议层 (Protocol Layer)
 

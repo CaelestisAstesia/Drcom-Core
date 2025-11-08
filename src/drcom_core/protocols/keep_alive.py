@@ -1,4 +1,4 @@
-# src/drcom_core/drcom_protocol/keep_alive.py
+# src/drcom_core/protocols/keep_alive.py
 """
 处理 Dr.COM D 版心跳维持 (Keep Alive) 包的构建与解析。
 包括 Keep Alive 1 (FF 包) 和 Keep Alive 2 (07 包序列)。
@@ -121,7 +121,6 @@ def build_keep_alive2_packet(
     packet_number: int,
     tail: bytes,  # 来自上一个响应包 data[16:20]
     packet_type: int,  # 通常是 1 或 3
-    # [重构] 接收字节
     host_ip_bytes: bytes,
     keep_alive_version: bytes,  # 从 Config 传入
     is_first_packet: bool = False,
@@ -185,7 +184,6 @@ def build_keep_alive2_packet(
         if packet_type == 3:
             # Type 3: CRC(0) + Host IP + Padding(8)
 
-            # [重构] 不再调用 socket.inet_aton，直接使用传入的字节
             if len(host_ip_bytes) != 4:
                 raise ValueError(
                     f"无效的 host_ip_bytes，长度不为 4 (实际: {len(host_ip_bytes)})"
