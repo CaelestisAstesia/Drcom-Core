@@ -1,4 +1,4 @@
-# src/drcom_core/protocols/D520_version.py
+# src/drcom_core/protocols/version_520d.py
 """
 Dr.COM 核心库 - D 版协议策略 (D Version Protocol Strategy)
 
@@ -14,6 +14,9 @@ import random
 import socket  # 只导入 socket.error 和 socket.timeout 用于异常处理
 import time
 from typing import TYPE_CHECKING, Optional
+
+# 导入状态类
+from ..state import DrcomState
 
 # 导入协议层和常量
 from . import challenge, constants, keep_alive, login, logout
