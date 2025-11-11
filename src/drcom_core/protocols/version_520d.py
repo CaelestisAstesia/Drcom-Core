@@ -503,5 +503,10 @@ class D_Protocol(BaseProtocol):
 
     def _reset_state(self):
         """[内部] D 版 清理所有会话状态"""
-        self.state = DrcomState()
+        self.state.salt = b""
+        self.state.auth_info = b""
+        self.state.login_success = False
+        self.state.keep_alive_serial_num = 0
+        self.state.keep_alive_tail = b"\x00\x00\x00\x00"
+        self.state._ka2_initialized = False
         self.logger.info("D 版协议状态已重置。")
