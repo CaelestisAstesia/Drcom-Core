@@ -4,6 +4,11 @@ import pytest
 
 from drcom_core.protocols import constants, login
 
+try:
+    print("\n[DEBUG] Pytest 正在从以下路径导入 'login' 模块:")
+    print(f"    {login.__file__}\n")
+except Exception as e:
+    print(f"\n[DEBUG] 无法打印 login.__file__: {e}\n")
 # --- 测试内部辅助函数 _calculate_checksum ---
 
 
@@ -93,9 +98,30 @@ def test_build_login_packet_happy_path(
     # 验证 Auth Version 位置
     assert packet[310:312] == auth_version
 
+    actual_mac_slice = packet[320:326]
+    expected_mac = mac_bytes
     # 验证 AuthExtData 结构中的 MAC 地址 (包的末尾附近)
     # (312 (Code) + 313 (Len) + 314-317 (CRC) + 318-319 (Option) + 320-325 (MAC))
-    # assert packet[320:326] == mac_bytes
+    # 调试输出：
+    if actual_mac_slice != expected_mac:
+        print(f"\n--- DEBUG: 完整数据包 (Actual) ---\n{packet.hex()}\n")
+
+        # 我们可以进一步验证其他字段
+        # 比如 mac xor md5a (偏移量 58-63)
+        actual_xor_slice = packet[58:64]
+        print(f"--- DEBUG: 实际的 XOR   (packet[58:64]): {actual_xor_slice.hex()}")
+
+        # 打印出 `md5a` 的相关切片，看看哪个对上了
+        from hashlib import md5
+
+        md5a = md5(b"\x03\x01" + salt + password.encode("utf-8", "ignore")).digest()
+        print(f"--- DEBUG: 期望的 MD5A[0:6]: {md5a[:6].hex()}")
+        print(f"--- DEBUG: 期望的 MD5A[3:9]: {md5a[3:9].hex()}")
+
+        print(f"--- DEBUG: 期望的 MAC (mac_bytes): {expected_mac.hex()}")
+        print(f"--- DEBUG: 实际的 MAC (packet[320:326]): {actual_mac_slice.hex()}")
+
+    assert packet[320:326] == mac_bytes
 
     # 验证结尾 (非 ROR)
     assert packet.endswith(constants.LOGIN_PACKET_ENDING)
