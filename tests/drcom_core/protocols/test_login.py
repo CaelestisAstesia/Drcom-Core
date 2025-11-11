@@ -18,7 +18,7 @@ def test_calculate_checksum_deterministic():
     我们使用一组已知数据和后缀，验证其是否能生成一个固定的 checksum。
     """
     # 1. 准备输入数据
-    # 模拟的包数据（任意选择，但必须固定）
+    # 模拟的包数据
     mock_packet_data = (
         b"\x03\x01\x00\x28" + b"\xab" * 16 + b"testuser".ljust(36, b"\x00")
     )
@@ -98,29 +98,8 @@ def test_build_login_packet_happy_path(
     # 验证 Auth Version 位置
     assert packet[310:312] == auth_version
 
-    actual_mac_slice = packet[320:326]
-    expected_mac = mac_bytes
     # 验证 AuthExtData 结构中的 MAC 地址 (包的末尾附近)
     # (312 (Code) + 313 (Len) + 314-317 (CRC) + 318-319 (Option) + 320-325 (MAC))
-    # 调试输出：
-    if actual_mac_slice != expected_mac:
-        print(f"\n--- DEBUG: 完整数据包 (Actual) ---\n{packet.hex()}\n")
-
-        # 我们可以进一步验证其他字段
-        # 比如 mac xor md5a (偏移量 58-63)
-        actual_xor_slice = packet[58:64]
-        print(f"--- DEBUG: 实际的 XOR   (packet[58:64]): {actual_xor_slice.hex()}")
-
-        # 打印出 `md5a` 的相关切片，看看哪个对上了
-        from hashlib import md5
-
-        md5a = md5(b"\x03\x01" + salt + password.encode("utf-8", "ignore")).digest()
-        print(f"--- DEBUG: 期望的 MD5A[0:6]: {md5a[:6].hex()}")
-        print(f"--- DEBUG: 期望的 MD5A[3:9]: {md5a[3:9].hex()}")
-
-        print(f"--- DEBUG: 期望的 MAC (mac_bytes): {expected_mac.hex()}")
-        print(f"--- DEBUG: 实际的 MAC (packet[320:326]): {actual_mac_slice.hex()}")
-
     assert packet[320:326] == mac_bytes
 
     # 验证结尾 (非 ROR)
