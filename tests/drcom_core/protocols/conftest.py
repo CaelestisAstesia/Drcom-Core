@@ -23,7 +23,7 @@ def password() -> str:
 @pytest.fixture(scope="module")
 def mac_address() -> int:
     # 0x112233445566
-    return 18838238276198
+    return 18838586676582
 
 
 @pytest.fixture(scope="module")
