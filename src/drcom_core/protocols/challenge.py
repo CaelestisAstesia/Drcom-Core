@@ -56,6 +56,11 @@ def parse_challenge_response(data: bytes) -> Optional[bytes]:
     """
     logger.debug("解析 Challenge 响应...")
 
+    # 0. 增加健壮性检查
+    if not data:
+        logger.warning("解析 Challenge 响应：收到空数据或 None。")
+        return None
+
     # 1. 验证响应代码
     if not data.startswith(constants.CHALLENGE_RESP_CODE):  # b'\x02'
         logger.warning(

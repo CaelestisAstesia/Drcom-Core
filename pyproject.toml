@@ -40,3 +40,5 @@ Issues = "https://github.com/CaelestisAstesia/Drcom-Core/issues"
 # --- 包查找配置 ---
 [tool.setuptools.packages.find]
 where = ["src"]
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -198,7 +198,7 @@ class DrcomCore:
             while not self._heartbeat_stop_event.is_set():
                 # [策略] 将 keep_alive 委托给协议
                 if not self.protocol.keep_alive():
-                    self.logger.warning("心跳失败 (来自协议层)。心跳循环终止。")
+                    logger.warning("心跳失败 (来自协议层)。心跳循环终止。")
                     break  # 协议逻辑说失败了，引擎就停止
 
                 # 步骤 C: 等待间隔
