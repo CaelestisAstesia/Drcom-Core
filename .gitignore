@@ -189,3 +189,4 @@ cython_debug/
 # Personal configurations
 #  These files are personal configurations and should not be shared.
 config.toml
+mkdocs.yml
