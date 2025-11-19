@@ -10,6 +10,7 @@ import struct
 import time
 from typing import Optional
 
+from ..exceptions import ProtocolError
 from . import constants
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,9 @@ def build_challenge_request() -> bytes:
 
     Returns:
         bytes: 构建完成的 Challenge 请求包。
+
+    Raises:
+        ProtocolError: 如果构建过程失败。
     """
     logger.debug("构建 Challenge 请求包...")
     try:
@@ -41,7 +45,7 @@ def build_challenge_request() -> bytes:
 
     except Exception as e:
         logger.error(f"构建 Challenge 请求时发生意外错误: {e}", exc_info=True)
-        raise ValueError("构建 Challenge 包失败") from e
+        raise ProtocolError("构建 Challenge 包失败") from e
 
 
 def parse_challenge_response(data: bytes) -> Optional[bytes]:
@@ -56,9 +60,8 @@ def parse_challenge_response(data: bytes) -> Optional[bytes]:
     """
     logger.debug("解析 Challenge 响应...")
 
-    # 0. 增加健壮性检查
     if not data:
-        logger.warning("解析 Challenge 响应：收到空数据或 None。")
+        logger.warning("Challenge 响应为空。")
         return None
 
     # 1. 验证响应代码

@@ -8,10 +8,9 @@ import hashlib
 import logging
 from typing import Optional, Tuple
 
-# 从常量模块导入所需常量
+from ..exceptions import ProtocolError
 from . import constants
 
-# 获取当前模块的 logger 实例
 logger = logging.getLogger(__name__)
 
 
@@ -26,70 +25,44 @@ def build_logout_packet(
 ) -> bytes:
     """
     构建 Dr.COM D 版登出请求包 (Code 0x06)。
-
-    Args:
-        username: 用户名。
-        password: 密码。
-        salt: 4 字节 Challenge Salt (通常是新获取的)。
-        mac: MAC 地址的整数表示。
-        auth_info: 登录成功时获取的 16 字节认证信息 (Tail)。
-        control_check_status: 控制检查状态字节 (与登录时相同)。
-        adapter_num: 适配器数字节 (与登录时相同)。
-
-    Returns:
-        bytes: 构建完成的登出请求数据包。
-
-    Raises:
-        ValueError: 如果输入参数无效 (如 auth_info 或 salt 长度错误)。
     """
     logger.debug("开始构建登出数据包...")
 
     # 参数校验
     if not auth_info or len(auth_info) != constants.AUTH_INFO_LENGTH:
-        raise ValueError(
+        raise ProtocolError(
             f"无效的 Auth Info (Tail)，长度应为 {constants.AUTH_INFO_LENGTH}。"
         )
     if not salt or len(salt) != 4:
-        raise ValueError("无效的 Salt，长度应为 4。")
+        raise ProtocolError("无效的 Salt，长度应为 4。")
 
     # 编码转换
     try:
         username_bytes = username.encode("utf-8", "ignore")
         password_bytes = password.encode("utf-8", "ignore")
     except Exception as e:
-        logger.error(f"用户名或密码编码失败: {e}")
-        raise ValueError("用户名或密码编码失败") from e
+        raise ProtocolError(f"用户名或密码编码失败: {e}") from e
 
-    # 开始构建数据包
     packet = b""
 
     # 1. 包头和长度
-    #    长度 = 用户名实际字节长度 + 固定偏移
-    pkt_len = (
-        len(username_bytes) + constants.LOGIN_PACKET_LENGTH_OFFSET
-    )  # 复用登录包的偏移
+    pkt_len = len(username_bytes) + constants.LOGIN_PACKET_LENGTH_OFFSET
     header = (
         constants.LOGOUT_REQ_CODE + constants.LOGOUT_TYPE + b"\x00" + bytes([pkt_len])
     )
     packet += header
-    logger.debug(f"  步骤 1: 包头和长度 = {header.hex()}")
 
-    # 2. MD5_A (与登录包类似，但基于登出请求的 salt)
+    # 2. MD5_A (基于新 Salt)
     md5a_data = constants.MD5_SALT_PREFIX + salt + password_bytes
     md5a = hashlib.md5(md5a_data).digest()
     packet += md5a
-    logger.debug(f"  步骤 2: 添加 MD5_A = {md5a.hex()}")
 
     # 3. 用户名
     packet += username_bytes.ljust(constants.USERNAME_PADDING_LENGTH, b"\x00")
-    logger.debug("  步骤 3: 添加用户名 (填充)")
 
-    # 4. 添加 ControlStatus 和 AdapterNum
+    # 4. ControlStatus & AdapterNum
     packet += control_check_status
     packet += adapter_num
-    logger.debug(
-        f"  步骤 4: 添加 ControlStatus ({control_check_status.hex()}) 和 AdapterNum ({adapter_num.hex()})"
-    )
 
     # 5. MAC 地址异或
     mac_xor_md5_part = md5a[: constants.MAC_XOR_PADDING_LENGTH]
@@ -97,30 +70,18 @@ def build_logout_packet(
         md5_part_int = int.from_bytes(mac_xor_md5_part, byteorder="big")
         xor_result = md5_part_int ^ mac
         xor_bytes = xor_result.to_bytes(
-            constants.MAC_XOR_PADDING_LENGTH, byteorder="big", signed=False
+            constants.MAC_XOR_PADDING_LENGTH, byteorder="big"
         )
         packet += xor_bytes
-        logger.debug(f"  步骤 5: 添加 MAC 异或结果 = {xor_bytes.hex()}")
-    except OverflowError:
-        logger.error(
-            f"MAC 地址 ({hex(mac)}) 或 MD5A 部分 ({mac_xor_md5_part.hex()}) 无法正确转换为{constants.MAC_XOR_PADDING_LENGTH}字节进行异或。"
-        )
-        raise ValueError("MAC 地址异或计算时发生溢出错误") from None
     except Exception as e:
         logger.error(f"MAC 地址异或计算失败: {e}", exc_info=True)
-        # 即使异或失败也继续，但填充0可能导致服务器不识别
+        # 为了尝试登出，这里做降级处理：填充0
         packet += b"\x00" * constants.MAC_XOR_PADDING_LENGTH
-        logger.warning("MAC 异或计算失败，填充零字节继续构建登出包。")
 
     # 6. Auth Info (Tail)
     packet += auth_info
-    logger.debug(f"  步骤 6: 添加 Auth Info (Tail) = {auth_info.hex()}")
 
-    logger.info(f"登出数据包构建完成，总长度: {len(packet)} 字节。")
     return packet
-
-
-# [重构] 删除了 send_logout_request 函数
 
 
 def parse_logout_response(
@@ -130,45 +91,22 @@ def parse_logout_response(
 ) -> Tuple[bool, str]:
     """
     解析 Dr.COM 服务器返回的登出响应包。
-    服务器通常不响应登出请求，因此收到响应反而可能是异常情况，
-    但如果收到 Code 0x04 则明确表示成功。
-
-    Args:
-        response_data: 收到的原始响应字节串，可能为 None。
-        expected_server_ip: 期望的服务器 IP 地址。
-        received_from_ip: 实际发送响应的 IP 地址，可能为 None。
-
-    Returns:
-        tuple: (is_success, message)
-            - is_success (bool): 登出是否可以视为成功。
-            - message (str): 描述结果的消息。
     """
-    logger.debug(
-        f"开始解析登出响应: {response_data.hex() if response_data else 'None'}"
-    )
-
     # 情况 1: 未收到响应
     if not response_data:
-        logger.info("未收到登出响应 (正常情况，视为客户端已尝试登出)。")
-        return True, "未收到响应 (正常情况)"  # 视为成功
+        return True, "未收到响应 (正常情况，视为尝试登出成功)"
 
-    # 情况 2: 收到响应，但来源 IP 不对或缺失
-    if not received_from_ip:
-        msg = "收到登出响应但缺少来源 IP"
-        logger.warning(msg)
-        return False, msg  # 视为异常
-    if received_from_ip != expected_server_ip:
+    # 情况 2: 收到响应，但来源 IP 不对
+    if not received_from_ip or received_from_ip != expected_server_ip:
         msg = f"收到来源不匹配的登出响应 (来自: {received_from_ip})"
         logger.warning(msg)
-        return False, msg  # 视为异常
+        return False, msg
 
     # 情况 3: 收到来自正确服务器的响应
     response_code = response_data[0]
     if response_code == constants.SUCCESS_RESP_CODE:  # 0x04
-        logger.info("服务器显式返回了成功代码 (0x04)，确认登出。")
-        return True, "服务器确认登出成功"
+        return True, "服务器确认登出成功 (0x04)"
     else:
-        # 收到其他代码，视为异常
         msg = f"收到来自服务器的非预期登出响应代码: {hex(response_code)}"
         logger.warning(msg)
         return False, msg
