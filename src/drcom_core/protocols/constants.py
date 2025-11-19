@@ -2,56 +2,14 @@
 """
 Dr.COM 协议层 - 常量
 
-定义所有协议相关的魔法数字、偏移量、默认值。
+定义所有协议相关的魔法数字、偏移量、固定值。
+注意：此处不应包含任何默认配置或控制策略（如超时、重试次数），
+这些应由 Config 对象或 Engine 控制。
 """
 
-# Core Logic Constants (Default values used by Config)
-# ---------------------------------------------------
-# 这些是 Config 模块 会用到的默认值
-DEFAULT_DRCOM_PORT = 61440
-DEFAULT_HOST_NAME = "Lenovo Windows 10 PC"
-DEFAULT_HOST_OS = "Windows 10"
-DEFAULT_DHCP_SERVER = "0.0.0.0"
-DEFAULT_PRIMARY_DNS = "114.114.114.114"
-# Keep Alive 2 的默认版本号
-KEEP_ALIVE_VERSION = b"\xdc\x02"
-
-
-# Socket Timeouts (Used by Core/Network layers)
-# ---------------------------------------------------
-TIMEOUT_CHALLENGE = 3  # Challenge 请求/响应超时
-TIMEOUT_LOGIN = 5  # Login 响应超时
-TIMEOUT_LOGOUT = 2  # Logout 响应超时 (通常较短)
-TIMEOUT_KEEP_ALIVE = 3  # Keep-Alive 响应超时
-
-
-# Retry Logic (Used by Core layer)
-# ---------------------------------------------------
-MAX_RETRIES_CHALLENGE = 5
-MAX_RETRIES_LOGIN = 3
-MAX_RETRIES_LOGOUT_CHALLENGE = 1  # 登出前尝试获取 salt 的次数
-
-
-# Sleep Durations (Used by Core layer)
-# ---------------------------------------------------
-SLEEP_SOCKET_ERROR = 1.0  # Socket 错误后等待时间
-SLEEP_LOGIN_FAIL_EXIT = 30.0  # 不可重试错误或次数耗尽后退出前的等待时间
-SLEEP_CHALLENGE_FAIL_RETRY = 60.0  # Challenge 失败后重试前的等待时间
-SLEEP_ABNORMAL_STATE_RETRY = 10.0  # 检测到异常状态后重试前的等待时间
-SLEEP_KEEP_ALIVE_INTERVAL = 20.0  # 心跳发送间隔
-
-
-# Misc (Used by Config layer)
-# ---------------------------------------------------
-BOOLEAN_TRUE_STRINGS = ("true", "1", "t")  # 用于判断环境变量布尔值的字符串
-
-
 # =========================================================================
-# 协议层常量 (PROTOCOL CONSTANTS)
+# 协议代码 (Protocol Codes)
 # =========================================================================
-
-# Protocol Codes
-# ---------------------------------------------------
 MISC_CODE = b"\x07"  # Keep Alive 2 (07 包) 和 FF 包响应的 Code
 CHALLENGE_REQ_CODE = b"\x01\x02"  # Challenge 请求 Code
 CHALLENGE_RESP_CODE = b"\x02"  # Challenge 响应 Code
@@ -61,27 +19,27 @@ LOGOUT_TYPE = b"\x01"  # Logout 请求 Type
 KEEP_ALIVE_CLIENT_CODE = b"\xff"  # Keep Alive 1 (FF 包) Code
 
 
-# Challenge Constants (challenge.py)
-# ---------------------------------------------------
+# =========================================================================
+# Challenge 常量
+# =========================================================================
 CHALLENGE_REQ_SUFFIX = b"\x09"
 CHALLENGE_REQ_PADDING_LENGTH = 15
 SALT_START_INDEX = 4
 SALT_END_INDEX = 8
 
 
-# Login Constants (login.py)
-# ---------------------------------------------------
+# =========================================================================
+# Login 常量
+# =========================================================================
 LOGIN_PACKET_LENGTH_OFFSET = 20  # 包长度 = 用户名长度 + 这个偏移
 
-MD5_SALT_PREFIX = (
-    b"\x03\x01"  # 用于计算 MD5A (Login, Logout) 和 MD5 (Keep Alive 1) 的盐前缀
-)
-MD5B_SALT_PREFIX = b"\x01"  # 用于计算 MD5B (Login) 的盐前缀
-MD5B_SALT_SUFFIX = b"\x00" * 4  # 用于计算 MD5B (Login) 的盐后缀
-MD5C_SUFFIX = b"\x14\x00\x07\x0b"  # 用于计算 MD5C (Checksum1, Login) 的后缀
-CHECKSUM1_LENGTH = 8  # Checksum1 (MD5C, Login) 的长度
+MD5_SALT_PREFIX = b"\x03\x01"  # MD5A 前缀
+MD5B_SALT_PREFIX = b"\x01"  # MD5B 前缀
+MD5B_SALT_SUFFIX = b"\x00" * 4  # MD5B 后缀
+MD5C_SUFFIX = b"\x14\x00\x07\x0b"  # Checksum1 后缀
+CHECKSUM1_LENGTH = 8
 
-CHECKSUM2_SUFFIX = b"\x01\x26\x07\x11\x00\x00"  # 用于计算 Checksum2 (Login) 的后缀
+CHECKSUM2_SUFFIX = b"\x01\x26\x07\x11\x00\x00"  # Checksum2 后缀
 CHECKSUM2_INIT_VALUE = 1234
 CHECKSUM2_MULTIPLIER = 1968
 
@@ -89,7 +47,7 @@ AUTH_EXT_DATA_CODE = b"\x02"
 AUTH_EXT_DATA_LEN = b"\x0c"
 AUTH_EXT_DATA_OPTION = b"\x00\x00"
 
-# Padding Lengths
+# 填充长度
 USERNAME_PADDING_LENGTH = 36
 HOSTNAME_PADDING_LENGTH = 32
 HOSTOS_PADDING_LENGTH = 32
@@ -97,23 +55,25 @@ HOSTOS_PADDING_SUFFIX_LENGTH = 96
 IP_ADDR_PADDING_LENGTH = 12
 MAC_XOR_PADDING_LENGTH = 6
 
-# Fixed Padding/Values (Default values for packet building)
+# 固定填充值 (属于协议格式的一部分，保留)
 IPDOG_SEPARATOR = b"\x00" * 4
 SECONDARY_DNS_DEFAULT = b"\x00\x00\x00\x00"
 WINS_SERVER_DEFAULT = b"\x00" * 8
+# 注意：AUTO_LOGOUT 和 BROADCAST_MODE 虽然有 DEFAULT，但它们实际上是填入包体的固定值，
+# 除非我们打算让用户配置这俩位（通常不需要），否则可以视为协议常量保留。
 AUTO_LOGOUT_DEFAULT = b"\x00"
 BROADCAST_MODE_DEFAULT = b"\x00"
-LOGIN_PACKET_ENDING = b"\xe9\x13"
+LOGIN_PACKET_ENDING = b"\xe9\x13"  # 虽然未来要随机化，但目前作为默认值保留
 
-# Login Response (parse_login_response)
-LOGIN_RESP_SUCCESS_CODE = 0x04  # 登录成功响应 Code (整数)
-LOGIN_RESP_FAIL_CODE = 0x05  # 登录失败响应 Code (整数)
+# 登录响应
+LOGIN_RESP_SUCCESS_CODE = 0x04
+LOGIN_RESP_FAIL_CODE = 0x05
 AUTH_INFO_START_INDEX = 23
-AUTH_INFO_END_INDEX = 39  # AUTH_INFO_START_INDEX + AUTH_INFO_LENGTH
+AUTH_INFO_END_INDEX = 39
 AUTH_INFO_LENGTH = 16
 ERROR_CODE_INDEX = 4
 
-# Login Error Codes
+# 错误代码 (协议定义的，保留)
 ERROR_CODE_IN_USE = 0x01
 ERROR_CODE_SERVER_BUSY = 0x02
 ERROR_CODE_WRONG_PASS = 0x03
@@ -126,25 +86,17 @@ ERROR_CODE_WRONG_VERSION = 0x15
 ERROR_CODE_WRONG_IP_MAC = 0x16
 ERROR_CODE_FORCE_DHCP = 0x17
 
-# Login No Retry Error Codes (Used by Core layer)
-NO_RETRY_ERROR_CODES = [
-    ERROR_CODE_WRONG_PASS,
-    ERROR_CODE_INSUFFICIENT,
-    ERROR_CODE_FROZEN,
-    ERROR_CODE_WRONG_IP,
-    ERROR_CODE_WRONG_MAC,
-    ERROR_CODE_WRONG_IP_MAC,
-    ERROR_CODE_FORCE_DHCP,
-]
+# Keep Alive 2 的默认版本号 (作为协议的一部分保留，但 Config 可覆盖)
+KEEP_ALIVE_VERSION = b"\xdc\x02"
 
 
-# Keep Alive Constants (keep_alive.py)
-# ---------------------------------------------------
-KEEP_ALIVE_RESP_CODE = MISC_CODE  # FF 包和 07 包响应 Code 都是 0x07
+# =========================================================================
+# Keep Alive 常量
+# =========================================================================
+KEEP_ALIVE_RESP_CODE = MISC_CODE
 KEEP_ALIVE_EMPTY_BYTES_3 = b"\x00\x00\x00"
 KEEP_ALIVE_EMPTY_BYTES_4 = b"\x00\x00\x00\x00"
 
-# Keep Alive 2 specific constants
 KA2_HEADER_PREFIX = b"\x28\x00\x0b"
 KA2_FIXED_PART1 = b"\x2f\x12"
 KA2_FIXED_PART1_PADDING = b"\x00" * 6
@@ -155,6 +107,7 @@ KA2_TYPE3_PADDING_END = b"\x00" * 8
 KA2_FIRST_PACKET_VERSION = b"\x0f\x27"
 
 
-# Logout Constants (logout.py)
-# ---------------------------------------------------
-SUCCESS_RESP_CODE = LOGIN_RESP_SUCCESS_CODE  # 登出成功响应 Code (统一为整数 0x04)
+# =========================================================================
+# Logout 常量
+# =========================================================================
+SUCCESS_RESP_CODE = LOGIN_RESP_SUCCESS_CODE

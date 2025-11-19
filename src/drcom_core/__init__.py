@@ -3,14 +3,21 @@
 drcom-core: 现代化 Dr.Com 认证协议核心库
 """
 
-# 公共 API
 from .config import DrcomConfig, load_config_from_dict
 from .core import DrcomCore
-from .state import DrcomState
+from .exceptions import AuthError, ConfigError, DrcomError, NetworkError, ProtocolError
+from .state import CoreStatus, DrcomState
 
 __all__ = [
     "DrcomCore",
     "DrcomConfig",
     "DrcomState",
+    "CoreStatus",
     "load_config_from_dict",
+    "DrcomError",
+    "ConfigError",
+    "NetworkError",
+    "ProtocolError",
+    "AuthError",
 ]
+__version__ = "1.0.0a2"

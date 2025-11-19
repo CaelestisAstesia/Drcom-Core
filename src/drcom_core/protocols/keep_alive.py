@@ -1,8 +1,6 @@
 # src/drcom_core/protocols/keep_alive.py
 """
 处理 Dr.COM D 版心跳维持 (Keep Alive) 包的构建与解析。
-包括 Keep Alive 1 (FF 包) 和 Keep Alive 2 (07 包序列)。
-本模块只负责包的构建和解析，不执行网络 I/O。
 """
 
 import hashlib
@@ -11,7 +9,7 @@ import struct
 import time
 from typing import Optional
 
-# 从常量模块导入所有需要的常量
+from ..exceptions import ProtocolError
 from . import constants
 
 logger = logging.getLogger(__name__)
@@ -24,36 +22,17 @@ logger = logging.getLogger(__name__)
 def build_keep_alive1_packet(
     salt: bytes,
     password: str,
-    auth_info: bytes,  # Tail from login response
+    auth_info: bytes,
     include_trailing_zeros: bool = True,
-) -> Optional[bytes]:
+) -> bytes:
     """
-    构建 Keep Alive 1 (FF 包 / 心跳包 1)。
-
-    结构: FF + MD5(0301+salt+pwd) + 00*3 + auth_info(tail) + timestamp(!H) [+ 00*4]
-
-    Args:
-        salt: 当前有效的 4 字节 Challenge Salt (来自登录或上一次 Challenge)。
-        password: 用户密码。
-        auth_info: 登录成功时获取的 16 字节认证信息 (Tail)。
-        include_trailing_zeros: 是否在包末尾添加 4 个零字节。
-
-    Returns:
-        Optional[bytes]: 构建好的 FF 心跳包，如果参数无效则返回 None。
+    构建 Keep Alive 1 (FF 包)。
     """
-    logger.debug("构建 Keep Alive 1 (FF) 包...")
     # 参数校验
     if not salt or len(salt) != 4:
-        logger.error("构建 FF 包失败: Salt 无效。")
-        return None
-    if not password:
-        logger.error("构建 FF 包失败: 密码为空。")
-        return None
+        raise ProtocolError("构建 FF 包失败: Salt 无效。")
     if not auth_info or len(auth_info) != constants.AUTH_INFO_LENGTH:
-        logger.error(
-            f"构建 FF 包失败: Auth Info (Tail) 无效或长度不为 {constants.AUTH_INFO_LENGTH}。"
-        )
-        return None
+        raise ProtocolError("构建 FF 包失败: Auth Info 长度错误 (需要16字节)。")
 
     try:
         password_bytes = password.encode("utf-8", "ignore")
@@ -62,54 +41,39 @@ def build_keep_alive1_packet(
         md5_data = constants.MD5_SALT_PREFIX + salt + password_bytes
         md5_hash = hashlib.md5(md5_data).digest()
 
-        # 2. 获取时间戳 (2字节网络序)
+        # 2. 获取时间戳
         timestamp_packed = struct.pack("!H", int(time.time()) % 0xFFFF)
 
         # 3. 组装数据包
         packet = (
             constants.KEEP_ALIVE_CLIENT_CODE  # \xff
             + md5_hash
-            + constants.KEEP_ALIVE_EMPTY_BYTES_3  # \x00*3
+            + constants.KEEP_ALIVE_EMPTY_BYTES_3
             + auth_info
             + timestamp_packed
         )
 
-        # 4. (可选) 添加末尾填充
         if include_trailing_zeros:
-            packet += constants.KEEP_ALIVE_EMPTY_BYTES_4  # \x00*4
+            packet += constants.KEEP_ALIVE_EMPTY_BYTES_4
 
-        logger.debug(
-            f"构建的 Keep Alive 1 包 ({'带' if include_trailing_zeros else '不带'}末尾填充): {packet.hex()}"
-        )
         return packet
 
     except Exception as e:
-        logger.error(f"构建 Keep Alive 1 包时出错: {e}", exc_info=True)
-        return None
+        raise ProtocolError(f"构建 Keep Alive 1 包时出错: {e}") from e
 
 
 def parse_keep_alive1_response(data: bytes) -> bool:
     """
     解析 Keep Alive 1 (FF 包) 的响应。
-    主要检查响应代码是否为 0x07。
-
-    Args:
-        data: 收到的响应字节串。
-
-    Returns:
-        bool: 如果响应代码是 0x07 则返回 True，否则 False。
     """
     if not data:
-        logger.warning("解析 Keep Alive 1 响应：收到空数据。")
+        logger.warning("KA1 响应为空。")
         return False
 
     if data.startswith(constants.KEEP_ALIVE_RESP_CODE):  # 0x07
-        logger.debug(
-            f"Keep Alive 1 响应代码正确 ({constants.KEEP_ALIVE_RESP_CODE.hex()})。"
-        )
         return True
     else:
-        logger.warning(f"Keep Alive 1 收到非预期的响应代码: {data[:1].hex()}。")
+        logger.warning(f"KA1 收到非预期的响应代码: {data[:1].hex()}。")
         return False
 
 
@@ -119,126 +83,78 @@ def parse_keep_alive1_response(data: bytes) -> bool:
 
 def build_keep_alive2_packet(
     packet_number: int,
-    tail: bytes,  # 来自上一个响应包 data[16:20]
-    packet_type: int,  # 通常是 1 或 3
+    tail: bytes,
+    packet_type: int,
     host_ip_bytes: bytes,
-    keep_alive_version: bytes,  # 从 Config 传入
+    keep_alive_version: bytes,
     is_first_packet: bool = False,
-) -> Optional[bytes]:
+) -> bytes:
     """
-    构建 Dr.COM 的 Keep Alive 2 (07 包) 心跳包。
-
-    结构: 07 + number + 28000b + type + version + 2f12 + 00*6 + tail + 00*4 + specific_part
-
-    Args:
-        packet_number: 包序号 (0-255)。
-        tail: 4 字节的 tail 值 (bytes 类型)，来自上一个响应包的 data[16:20]。
-        packet_type: 包类型，通常是 1 或 3。
-        host_ip_bytes: 当前客户端的 IP 地址 (4字节)。
-        keep_alive_version: 心跳版本号 (2字节, e.g. dc02)。
-        is_first_packet: 是否是整个 keep_alive2 序列中的第一个包。默认为 False。
-
-    Returns:
-        Optional[bytes]: 构建成功的心跳包，如果参数无效则返回 None。
+    构建 Keep Alive 2 (07 包)。
     """
-    logger.debug(
-        f"构建 Keep Alive 2 (07) 包: Number={packet_number}, Type={packet_type}, First={is_first_packet}"
-    )
-    # 参数校验
-    if not isinstance(packet_number, int) or not (0 <= packet_number <= 255):
-        logger.error(f"构建 KA2 包失败: packet_number ({packet_number}) 无效。")
-        return None
-    if not isinstance(tail, bytes) or len(tail) != 4:
-        logger.error(
-            f"构建 KA2 包失败: tail 无效或长度不为 4 (实际: {len(tail) if isinstance(tail, bytes) else type(tail)})。"
-        )
-        return None
+    if not (0 <= packet_number <= 255):
+        raise ProtocolError(f"KA2 packet_number 无效: {packet_number}")
+    if len(tail) != 4:
+        raise ProtocolError(f"KA2 tail 长度无效: {len(tail)}")
     if packet_type not in [1, 3]:
-        logger.error(f"构建 KA2 包失败: packet_type ({packet_type}) 无效。")
-        return None
+        raise ProtocolError(f"KA2 packet_type 无效: {packet_type}")
 
-    # 构建数据包头部和公共部分
     try:
+        # 头部
         data = constants.MISC_CODE  # b"\x07"
         data += bytes([packet_number])
         data += constants.KA2_HEADER_PREFIX
         data += bytes([packet_type])
 
-        # Version 字段
+        # Version
         if is_first_packet:
             data += constants.KA2_FIRST_PACKET_VERSION
         else:
-            data += keep_alive_version  # 使用 Config 传入的版本
+            data += keep_alive_version
 
         data += constants.KA2_FIXED_PART1
         data += constants.KA2_FIXED_PART1_PADDING
-        data += tail  # 使用传入的 tail
+        data += tail
         data += constants.KA2_TAIL_PADDING
 
-    except Exception as e:
-        logger.error(f"构建 KA2 包公共部分时出错: {e}", exc_info=True)
-        return None
-
-    # 构建类型特定部分 (specific_part) - 16字节
-    try:
+        # 类型特定部分
         if packet_type == 3:
-            # Type 3: CRC(0) + Host IP + Padding(8)
-
             if len(host_ip_bytes) != 4:
-                raise ValueError(
-                    f"无效的 host_ip_bytes，长度不为 4 (实际: {len(host_ip_bytes)})"
-                )
+                raise ProtocolError("Host IP 长度错误")
 
             specific_part = (
                 constants.KA2_TYPE3_CRC_DEFAULT
                 + host_ip_bytes
                 + constants.KA2_TYPE3_PADDING_END
             )
-        else:  # packet_type == 1
-            # Type 1: Padding(16)
+        else:
             specific_part = constants.KA2_TYPE1_SPECIFIC_PART
 
         data += specific_part
+        return data
 
-    except ValueError as e:
-        logger.error(f"构建 KA2 包失败：{e}")
-        return None
     except Exception as e:
-        logger.error(f"构建 KA2 包类型特定部分时出错: {e}", exc_info=True)
-        return None
-
-    logger.debug(f"构建的 Keep Alive 2 包: {data.hex()}")
-    return data
+        raise ProtocolError(f"构建 KA2 包时出错: {e}") from e
 
 
 def parse_keep_alive2_response(data: bytes) -> Optional[bytes]:
     """
-    解析 Keep Alive 2 (07 包) 的响应。
-    主要目的是提取新的 tail 值 (data[16:20])。
-
-    Args:
-        data: 收到的响应字节串。
-
-    Returns:
-        Optional[bytes]: 如果成功提取到 4 字节的 tail 则返回它，否则返回 None。
+    解析 Keep Alive 2 (07 包) 的响应，提取 Tail。
     """
     if not data:
-        logger.warning("解析 Keep Alive 2 响应：收到空数据。")
         return None
 
-    # 1. 检查响应 Code 是否为 0x07
-    if not data.startswith(constants.KEEP_ALIVE_RESP_CODE):  # b'\x07'
-        logger.warning(f"Keep Alive 2 收到非预期的响应代码: {data[:1].hex()}。")
+    # 1. 检查 Code
+    if not data.startswith(constants.KEEP_ALIVE_RESP_CODE):
+        logger.warning(f"KA2 收到非预期响应代码: {data[:1].hex()}。")
         return None
 
-    # 2. 检查长度是否足够提取 tail (需要至少 20 字节)
-    tail_start_index = 16  # Tail 开始索引
-    tail_end_index = tail_start_index + 4  # Tail 结束索引
-    if len(data) < tail_end_index:
-        logger.warning(f"Keep Alive 2 响应包过短 (长度 {len(data)})，无法提取 Tail。")
+    # 2. 提取 Tail
+    tail_start = 16
+    tail_end = 20
+    if len(data) < tail_end:
+        logger.warning(f"KA2 响应过短 (len={len(data)})，无法提取 Tail。")
         return None
 
-    # 3. 提取 tail
-    new_tail = data[tail_start_index:tail_end_index]
-    logger.debug(f"从 Keep Alive 2 响应中提取到新的 Tail: {new_tail.hex()}")
+    new_tail = data[tail_start:tail_end]
     return new_tail
