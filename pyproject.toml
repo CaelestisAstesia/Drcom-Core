@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # --- 核心元数据 ---
 name = "drcom-core"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 description = "Dr.COM 认证核心库 (5.2.0 D版实现)"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
