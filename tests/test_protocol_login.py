@@ -2,12 +2,11 @@
 from drcom_core.protocols import constants, login
 
 
-def test_login_packet_structure(valid_config):
-    """测试登录包的基本结构和长度"""
-    # 获取一个固定的 salt
+def test_build_login_packet_structure(valid_config):
+    """测试登录包构建成功"""
     salt = b"\x11\x22\x33\x44"
 
-    packet = login.build_login_packet(
+    pkt = login.build_login_packet(
         username=valid_config.username,
         password=valid_config.password,
         salt=salt,
@@ -17,65 +16,69 @@ def test_login_packet_structure(valid_config):
         dhcp_server_bytes=valid_config.dhcp_address_bytes,
         host_name=valid_config.host_name,
         host_os=valid_config.host_os,
+        os_info_bytes=valid_config.os_info_bytes,  # [新参数]
         adapter_num=valid_config.adapter_num,
         ipdog=valid_config.ipdog,
         auth_version=valid_config.auth_version,
         control_check_status=valid_config.control_check_status,
-        magic_tail=False,  # 先测试固定尾部
+        ror_status=valid_config.ror_status,
     )
 
-    # 1. 验证包头 (Code 03 01)
-    assert packet.startswith(constants.LOGIN_REQ_CODE)
+    # 验证包头
+    assert pkt.startswith(constants.LOGIN_REQ_CODE)
+    # 验证长度 (简单检查是否包含填充)
+    assert len(pkt) > 300
+    # 验证 OS Info 是否正确插入
+    assert valid_config.os_info_bytes in pkt
 
-    # 2. 验证尾部 (固定尾部 e9 13)
-    assert packet.endswith(constants.LOGIN_PACKET_ENDING)
+
+def test_magic_tail_randomness(valid_config):
+    """验证 Magic Tail 是随机的 (反指纹)"""
+    salt = b"\x00\x00\x00\x00"
+    # 固定所有参数
+    args = {
+        "username": valid_config.username,
+        "password": valid_config.password,
+        "salt": salt,
+        "mac_address": valid_config.mac_address,
+        "host_ip_bytes": valid_config.host_ip_bytes,
+        "primary_dns_bytes": valid_config.primary_dns_bytes,
+        "dhcp_server_bytes": valid_config.dhcp_address_bytes,
+        "host_name": valid_config.host_name,
+        "host_os": valid_config.host_os,
+        "os_info_bytes": valid_config.os_info_bytes,
+        "adapter_num": valid_config.adapter_num,
+        "ipdog": valid_config.ipdog,
+        "auth_version": valid_config.auth_version,
+        "control_check_status": valid_config.control_check_status,
+        "ror_status": False,
+    }
+
+    pkt1 = login.build_login_packet(**args)
+    pkt2 = login.build_login_packet(**args)
+
+    # 1. 两个包必须不同 (因为尾部随机)
+    assert pkt1 != pkt2
+    # 2. 包长度必须相同
+    assert len(pkt1) == len(pkt2)
+    # 3. 除去最后2字节，前面的内容必须相同
+    assert pkt1[:-2] == pkt2[:-2]
 
 
-def test_magic_tail(valid_config):
-    """测试 Magic Tail 是否生成随机尾部"""
-    salt = b"\x11\x22\x33\x44"
-
-    # 构建两个启用 Magic Tail 的包
-    packet1 = login.build_login_packet(
-        username=valid_config.username,
-        password=valid_config.password,
-        salt=salt,
-        mac_address=valid_config.mac_address,
-        host_ip_bytes=valid_config.host_ip_bytes,
-        primary_dns_bytes=valid_config.primary_dns_bytes,
-        dhcp_server_bytes=valid_config.dhcp_address_bytes,
-        host_name=valid_config.host_name,
-        host_os=valid_config.host_os,
-        adapter_num=valid_config.adapter_num,
-        ipdog=valid_config.ipdog,
-        auth_version=valid_config.auth_version,
-        control_check_status=valid_config.control_check_status,
-        magic_tail=True,  # 启用！
+def test_parse_login_success():
+    """测试解析成功响应 (0x04)"""
+    # 构造一个合法的 0x04 包, Auth Info 位于 23:39 (16字节)
+    mock_auth_info = b"A" * 16
+    resp = (
+        bytes([constants.LOGIN_RESP_SUCCESS_CODE])  # 0x04
+        + b"\x00" * 22
+        + mock_auth_info
+        + b"\x00" * 10
     )
 
-    packet2 = login.build_login_packet(
-        username=valid_config.username,
-        password=valid_config.password,
-        salt=salt,
-        mac_address=valid_config.mac_address,
-        host_ip_bytes=valid_config.host_ip_bytes,
-        primary_dns_bytes=valid_config.primary_dns_bytes,
-        dhcp_server_bytes=valid_config.dhcp_address_bytes,
-        host_name=valid_config.host_name,
-        host_os=valid_config.host_os,
-        adapter_num=valid_config.adapter_num,
-        ipdog=valid_config.ipdog,
-        auth_version=valid_config.auth_version,
-        control_check_status=valid_config.control_check_status,
-        magic_tail=True,  # 启用！
+    success, auth_info, err, msg = login.parse_login_response(
+        resp, "1.1.1.1", "1.1.1.1"
     )
-
-    # 验证包长度应该相同
-    assert len(packet1) == len(packet2)
-
-    # 验证包内容（尾部）应该不同
-    # 注意：极小概率下随机数可能碰撞，但在测试中通常忽略不计
-    assert packet1 != packet2
-
-    # 验证都不是固定的 e9 13
-    assert not packet1.endswith(constants.LOGIN_PACKET_ENDING)
+    assert success is True
+    assert auth_info == mock_auth_info
+    assert "成功" in msg
