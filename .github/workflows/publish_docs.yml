@@ -4,7 +4,7 @@ name: Publish Docs
 on:
   push:
     branches:
-      - main  # 当推送到 main 分支时触发
+      - main
 
 permissions:
   contents: write
@@ -23,9 +23,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mkdocs-material
-          # 如果你的 drcom-core 依赖也需要在构建文档时用到（例如自动提取 docstring），
-          # 请取消下面这行的注释：
+          # 1. 安装文档构建工具
+          pip install mkdocs-material "mkdocstrings[python]" black
+          # 2. 安装项目本身 (这是关键！mkdocstrings 需要 import 你的代码来生成文档)
           pip install -e .
 
       - name: Configure Git User
