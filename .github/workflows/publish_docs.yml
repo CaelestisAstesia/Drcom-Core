@@ -23,9 +23,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # 1. 安装文档构建工具
           pip install mkdocs-material "mkdocstrings[python]" black
-          # 2. 安装项目本身 (这是关键！mkdocstrings 需要 import 你的代码来生成文档)
           pip install -e .
 
       - name: Configure Git User
