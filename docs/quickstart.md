@@ -1,3 +1,9 @@
+---
+layout: default
+title: 快速上手
+nav_order: 2
+---
+
 # 快速上手
 
 Drcom-Core 提供了一个生产级的启动脚本 `run.py`，内置了优雅的日志记录、掉线重连检测和信号处理。

@@ -1,10 +1,12 @@
 title: Drcom-Core
 description: 现代化 Dr.Com 认证协议核心库
-theme: jekyll-theme-slate
+theme: pmarsceill/just-the-docs
 
 plugins:
   - jekyll-seo-tag
   - jekyll-sitemap
+
+color_scheme: dark
 
 exclude:
   - Gemfile

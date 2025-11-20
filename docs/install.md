@@ -1,3 +1,9 @@
+---
+layout: default
+title: 安装指南
+nav_order: 3
+---
+
 # 安装指南
 
 ## 环境要求

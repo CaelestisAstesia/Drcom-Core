@@ -1,3 +1,9 @@
+---
+layout: default
+title: 首页
+nav_order: 1
+---
+
 # 欢迎使用 Drcom-Core
 
 **Drcom-Core** 是为了解决 Dr.COM 认证协议在现代 Python 环境下缺乏高质量实现而诞生的项目。

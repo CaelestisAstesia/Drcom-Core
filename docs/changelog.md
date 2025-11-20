@@ -1,3 +1,9 @@
+---
+layout: default
+title: 更新日志
+nav_order: 9
+---
+
 # 更新日志
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/) 语义化版本规范。

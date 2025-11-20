@@ -1,3 +1,9 @@
+---
+layout: default
+title: 配置参考
+nav_order: 4
+---
+
 # 配置文件参考
 
 `drcom-core` 使用 **TOML** 格式进行配置管理。默认配置文件名为 `config.toml`。
