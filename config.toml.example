@@ -1,0 +1,37 @@
+# config.toml.example
+# Drcom-Core v1.0.0a3 配置文件模板
+# 请复制此文件为 config.toml 并修改为你的实际配置。
+
+[drcom]
+# --- 核心身份凭据 ---
+username = "your_username"
+password = "your_password"
+server_ip = "auth.jlu.edu.cn"      # 认证服务器 IP
+mac = "00-11-22-33-44-55"      # 你的 MAC 地址
+
+# --- 网络环境 ---
+host_ip = "192.168.1.100"      # 本机 IP
+primary_dns = "10.10.10.10"        # 首选 DNS
+dhcp_server = "192.168.1.1"    # 网关/DHCP 服务器
+bind_ip = "0.0.0.0"            # 本地绑定 IP
+drcom_port = 61440             # 协议端口
+
+# --- 协议控制 ---
+protocol_version = "D"
+ror_status = false             # 是否启用 ROR 防重放 (暂未实现，保持 false)
+
+# --- 主机指纹 ---
+host_name = "Drcom-Core"       # 主机名
+host_os = "Windows 10"         # 操作系统标识
+
+# 系统环境指纹 (OS Info) - 必需
+# 这是一段表示系统版本的二进制数据 (Hex 格式)。
+# 示例值对应 Windows 10 (Major 6, Build 10240)
+os_info_hex = "940000000600000000000000280a000002000000"
+
+# --- 协议参数 (Hex 格式) ---
+adapter_num = "01"
+ipdog = "01"
+auth_version = "2c00"          # 认证版本
+control_check_status = "20"    # 控制位
+keep_alive_version = "dc02"    # 心跳版本

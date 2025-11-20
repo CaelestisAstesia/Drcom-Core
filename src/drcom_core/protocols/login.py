@@ -1,16 +1,15 @@
 # src/drcom_core/protocols/login.py
 """
 处理 Dr.COM D 版登录认证 (Code 0x03) 请求包的构建与解析。
-本模块只负责包的构建和解析，不执行网络 I/O。
+传入参数均已合法。
 """
 
 import hashlib
 import logging
-import random  # 新增：用于随机包尾
+import random
 import struct
 from typing import Optional, Tuple
 
-from ..exceptions import ProtocolError
 from . import constants
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 def _calculate_checksum(data: bytes) -> bytes:
     """
     计算 Checksum2 (CRC 变种)。
-    算法：按4字节块异或，最后乘以常数。
     """
     ret = constants.CHECKSUM2_INIT_VALUE
     padded_data = data + b"\x00" * (-(len(data)) % 4)
@@ -45,120 +43,94 @@ def build_login_packet(
     # --- 身份标识 ---
     host_name: str,
     host_os: str,
+    os_info_bytes: bytes,  # [变更] 接收外部注入的 OS 指纹数据
     adapter_num: bytes,
     ipdog: bytes,
     auth_version: bytes,
     control_check_status: bytes,
     # --- 策略开关 ---
-    magic_tail: bool = False,
-    ror_status: bool = False,
+    ror_status: bool,
 ) -> bytes:
     """
     构建 Dr.COM D 版登录请求包。
     """
-    # 参数校验
-    if not salt or len(salt) != 4:
-        raise ProtocolError("Salt 无效，无法构建登录包。")
-
-    # 编码转换
-    try:
-        pwd_bytes = password.encode(
-            "gbk"
-        )  # 注意：部分老旧设备可能使用 gbk，这里暂用 utf-8/gbk 兼容策略
-        # 为兼容性，这里建议先尝试 utf-8，如果部分学校乱码可改为 gbk。
-        # 既然是通用库，这里暂时保持 utf-8，实际部署若有问题可调。
-        # 但实际上 Dr.Com 协议对中文支持很差，通常只处理 ASCII。
-        # 此处保持原样:
-        usr_bytes = username.encode("utf-8", "ignore")
-        pwd_bytes = password.encode("utf-8", "ignore")
-        hostname_bytes = host_name.encode("utf-8", "ignore")
-        hostos_bytes = host_os.encode("utf-8", "ignore")
-    except Exception as e:
-        raise ProtocolError(f"字符串编码失败: {e}") from e
+    # 1. 预处理数据 (编码)
+    usr_bytes = username.encode("utf-8", "ignore")
+    pwd_bytes = password.encode("utf-8", "ignore")
+    hostname_bytes = host_name.encode("utf-8", "ignore")
+    hostos_bytes = host_os.encode("utf-8", "ignore")
 
     data = b""
 
-    # 1. 包头 (Code 0x03, Type 0x01)
+    # 2. 包头
     packet_len = len(usr_bytes) + constants.LOGIN_PACKET_LENGTH_OFFSET
     header = constants.LOGIN_REQ_CODE + b"\x00" + bytes([packet_len])
     data += header
 
-    # 2. MD5_A = MD5(0301 + salt + pwd)
+    # 3. MD5_A
     md5a_data = constants.MD5_SALT_PREFIX + salt + pwd_bytes
     md5a = hashlib.md5(md5a_data).digest()
     data += md5a
 
-    # 3. 用户名 (36字节填充)
+    # 4. 用户名
     data += usr_bytes.ljust(constants.USERNAME_PADDING_LENGTH, b"\x00")
 
-    # 4. ControlStatus & AdapterNum
+    # 5. ControlStatus & AdapterNum
     data += control_check_status
     data += adapter_num
 
-    # 5. MAC XOR = MAC ^ MD5A[0:6]
-    try:
-        mac_xor_key = int.from_bytes(md5a[:6], byteorder="big")
-        xor_result = mac_xor_key ^ mac_address
-        data += xor_result.to_bytes(6, byteorder="big")
-    except Exception as e:
-        raise ProtocolError(f"MAC地址异或计算失败: {e}") from e
+    # 6. MAC XOR
+    mac_xor_key = int.from_bytes(md5a[:6], byteorder="big")
+    xor_result = mac_xor_key ^ mac_address
+    data += xor_result.to_bytes(6, byteorder="big")
 
-    # 6. MD5_B = MD5(01 + pwd + salt + 00*4)
+    # 7. MD5_B
     md5b_input = (
         constants.MD5B_SALT_PREFIX + pwd_bytes + salt + constants.MD5B_SALT_SUFFIX
     )
     md5b = hashlib.md5(md5b_input).digest()
     data += md5b
 
-    # 7. IP Count (1) & Host IP
+    # 8. IP Count (1) & Host IP
     data += b"\x01"
     data += host_ip_bytes
-    data += b"\x00" * constants.IP_ADDR_PADDING_LENGTH  # 12字节填充
+    data += b"\x00" * constants.IP_ADDR_PADDING_LENGTH
 
-    # 8. MD5_C (Checksum 1) = MD5(前文 + 1400070b) 前8字节
+    # 9. MD5_C (Checksum 1)
     md5c_input = data + constants.MD5C_SUFFIX
     md5c = hashlib.md5(md5c_input).digest()[: constants.CHECKSUM1_LENGTH]
     data += md5c
 
-    # 9. IPDOG
+    # 10. IPDOG
     data += ipdog
     data += constants.IPDOG_SEPARATOR
 
-    # 10. Hostname
+    # 11. Hostname
     data += hostname_bytes.ljust(constants.HOSTNAME_PADDING_LENGTH, b"\x00")
 
-    # 11. DNS & DHCP
+    # 12. DNS & DHCP
     data += primary_dns_bytes
     data += dhcp_server_bytes
-    data += constants.SECONDARY_DNS_DEFAULT
-    data += constants.WINS_SERVER_DEFAULT
+    data += constants.SECONDARY_DNS_PADDING
+    data += constants.WINS_SERVER_PADDING
 
-    # 12. OS Info (动态填充)
-    data += b"\x94\x00\x00\x00"  # Info Size
-    data += b"\x06\x00\x00\x00"  # Major (6=Win10/8/7 range usually)
-    data += b"\x00\x00\x00\x00"  # Minor
-    data += b"\x28\x0a\x00\x00"  # Build Number (2600)
-    data += b"\x02\x00\x00\x00"  # Platform ID
+    # 13. OS Info (由外部注入),使用配置传入的 bytes
+    data += os_info_bytes
 
-    # 13. Host OS String
+    # 14. Host OS String
     data += hostos_bytes.ljust(constants.HOSTOS_PADDING_LENGTH, b"\x00")
     data += b"\x00" * constants.HOSTOS_PADDING_SUFFIX_LENGTH
 
-    # 14. Auth Version
+    # 15. Auth Version
     data += auth_version
 
-    # 15. ROR (占位, 未启用)
+    # 16. ROR (TODO)
     if ror_status:
-        # TODO: 实现 ROR 逻辑
-        logger.warning("ROR 模式已启用但尚未实现，可能导致认证失败。")
+        logger.warning("ROR 模式已启用但尚未实现。")
 
-    # 16. AuthExtData (含 Checksum 2)
-    try:
-        mac_bytes = mac_address.to_bytes(6, byteorder="big")
-    except OverflowError:
-        raise ProtocolError("MAC地址无效")
+    # 17. Checksum 2
+    mac_bytes = mac_address.to_bytes(6, byteorder="big")
 
-    # 计算 Checksum 2 的输入数据
     checksum2_input = data + constants.CHECKSUM2_SUFFIX + mac_bytes
     checksum2 = _calculate_checksum(checksum2_input)
 
@@ -168,19 +140,14 @@ def build_login_packet(
     data += constants.AUTH_EXT_DATA_OPTION
     data += mac_bytes
 
-    # 17. 尾部填充
+    # 18. 尾部填充
     if not ror_status:
-        data += constants.AUTO_LOGOUT_DEFAULT
-        data += constants.BROADCAST_MODE_DEFAULT
+        data += constants.AUTO_LOGOUT_PADDING
+        data += constants.BROADCAST_MODE_PADDING
 
-    # 18. Magic Tail (包尾随机化)
-    if magic_tail:
-        # 生成2字节随机数据代替固定的 e913
-        rand_tail = random.randbytes(2)
-        data += rand_tail
-        logger.debug(f"已应用 Magic Tail: {rand_tail.hex()}")
-    else:
-        data += constants.LOGIN_PACKET_ENDING
+    # 19. Magic Tail
+    rand_tail = random.randbytes(2)
+    data += rand_tail
 
     return data
 
@@ -189,8 +156,7 @@ def parse_login_response(
     response_data: bytes, expected_server_ip: str, received_from_ip: str
 ) -> Tuple[bool, Optional[bytes], Optional[int], str]:
     """
-    解析登录响应。
-    返回: (是否成功, AuthInfo/None, ErrorCode/None, 消息)
+    解析登录响应。保留必要的基础校验。
     """
     if not response_data:
         return False, None, None, "未收到数据"
@@ -208,7 +174,7 @@ def parse_login_response(
     # 成功 (0x04)
     if code == constants.LOGIN_RESP_SUCCESS_CODE:
         if len(response_data) < constants.AUTH_INFO_END_INDEX:
-            return False, None, None, "响应包长度不足，无法提取 AuthInfo"
+            return False, None, None, "响应包长度不足"
 
         auth_info = response_data[
             constants.AUTH_INFO_START_INDEX : constants.AUTH_INFO_END_INDEX
@@ -221,7 +187,6 @@ def parse_login_response(
         if len(response_data) > constants.ERROR_CODE_INDEX:
             error_code = response_data[constants.ERROR_CODE_INDEX]
 
-        # 简单的错误描述映射
         err_msg = "未知错误"
         if error_code == constants.ERROR_CODE_IN_USE:
             err_msg = "账号在线或MAC绑定错误"
@@ -233,6 +198,10 @@ def parse_login_response(
             err_msg = "MAC地址不匹配"
         elif error_code == constants.ERROR_CODE_WRONG_IP:
             err_msg = "IP地址不匹配"
+        elif error_code == constants.ERROR_CODE_WRONG_VERSION:
+            err_msg = "客户端版本不匹配"
+        elif error_code == constants.ERROR_CODE_FROZEN:
+            err_msg = "账号被冻结"
 
         return (
             False,

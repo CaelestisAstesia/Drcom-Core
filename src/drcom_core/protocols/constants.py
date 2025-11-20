@@ -3,8 +3,8 @@
 Dr.COM 协议层 - 常量
 
 定义所有协议相关的魔法数字、偏移量、固定值。
-注意：此处不应包含任何默认配置或控制策略（如超时、重试次数），
-这些应由 Config 对象或 Engine 控制。
+注意：此处不包含任何可配置的策略参数（如超时、重试次数、版本号等），
+也不包含任何默认的身份特征。所有可变参数均应通过 Config 对象注入。
 """
 
 # =========================================================================
@@ -55,15 +55,13 @@ HOSTOS_PADDING_SUFFIX_LENGTH = 96
 IP_ADDR_PADDING_LENGTH = 12
 MAC_XOR_PADDING_LENGTH = 6
 
-# 固定填充值 (属于协议格式的一部分，保留)
+# 固定填充值 (属于协议数据结构的必要填充，非默认配置)
 IPDOG_SEPARATOR = b"\x00" * 4
-SECONDARY_DNS_DEFAULT = b"\x00\x00\x00\x00"
-WINS_SERVER_DEFAULT = b"\x00" * 8
-# 注意：AUTO_LOGOUT 和 BROADCAST_MODE 虽然有 DEFAULT，但它们实际上是填入包体的固定值，
-# 除非我们打算让用户配置这俩位（通常不需要），否则可以视为协议常量保留。
-AUTO_LOGOUT_DEFAULT = b"\x00"
-BROADCAST_MODE_DEFAULT = b"\x00"
-LOGIN_PACKET_ENDING = b"\xe9\x13"  # 虽然未来要随机化，但目前作为默认值保留
+SECONDARY_DNS_PADDING = b"\x00" * 4  # 对应原 SECONDARY_DNS_DEFAULT，改为 PADDING 更准确
+WINS_SERVER_PADDING = b"\x00" * 8  # 对应原 WINS_SERVER_DEFAULT
+AUTO_LOGOUT_PADDING = b"\x00"  # 对应原 AUTO_LOGOUT_DEFAULT
+BROADCAST_MODE_PADDING = b"\x00"  # 对应原 BROADCAST_MODE_DEFAULT
+
 
 # 登录响应
 LOGIN_RESP_SUCCESS_CODE = 0x04
@@ -73,7 +71,7 @@ AUTH_INFO_END_INDEX = 39
 AUTH_INFO_LENGTH = 16
 ERROR_CODE_INDEX = 4
 
-# 错误代码 (协议定义的，保留)
+# 错误代码
 ERROR_CODE_IN_USE = 0x01
 ERROR_CODE_SERVER_BUSY = 0x02
 ERROR_CODE_WRONG_PASS = 0x03
@@ -85,9 +83,6 @@ ERROR_CODE_TOO_MANY_IP = 0x14
 ERROR_CODE_WRONG_VERSION = 0x15
 ERROR_CODE_WRONG_IP_MAC = 0x16
 ERROR_CODE_FORCE_DHCP = 0x17
-
-# Keep Alive 2 的默认版本号 (作为协议的一部分保留，但 Config 可覆盖)
-KEEP_ALIVE_VERSION = b"\xdc\x02"
 
 
 # =========================================================================

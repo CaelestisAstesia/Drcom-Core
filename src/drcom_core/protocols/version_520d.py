@@ -1,8 +1,6 @@
 # src/drcom_core/protocols/version_520d.py
 """
 Dr.COM 核心库 - D 版协议策略 (D Version Protocol Strategy)
-
-封装 Dr.COM 5.2.0(D) 的完整认证流程。
 """
 
 import logging
@@ -10,7 +8,7 @@ import random
 import time
 from typing import TYPE_CHECKING
 
-from ..exceptions import NetworkError, ProtocolError
+from ..exceptions import AuthError, NetworkError, ProtocolError
 from ..state import CoreStatus
 from . import challenge, constants, keep_alive, login, logout
 from .base import BaseProtocol
@@ -22,10 +20,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# =========================================================================
-# 策略控制参数 (Strategy Control Parameters)
-# =========================================================================
-# 这些参数属于"策略"的一部分，因此定义在此处，而不是协议常量文件中
 TIMEOUT_CHALLENGE = 3
 TIMEOUT_LOGIN = 5
 TIMEOUT_KEEP_ALIVE = 3
@@ -48,7 +42,7 @@ class D_Protocol(BaseProtocol):
         net_client: "NetworkClient",
     ):
         super().__init__(config, state, net_client)
-        self.logger.info("Dr.COM D 版协议策略已加载。")
+        self.logger.info("Dr.COM D 版协议策略已加载 (v1.0.0a3)。")
 
     def login(self) -> bool:
         """
@@ -58,9 +52,11 @@ class D_Protocol(BaseProtocol):
         self.state.status = CoreStatus.CONNECTING
 
         try:
+            # 1. 获取 Salt
             if not self._challenge():
                 return False
 
+            # 2. 执行登录
             if self._login():
                 self.state.status = CoreStatus.LOGGED_IN
                 self.logger.info("D 版登录成功，状态已更新为 LOGGED_IN。")
@@ -79,6 +75,7 @@ class D_Protocol(BaseProtocol):
         """
         self.state.status = CoreStatus.HEARTBEAT
         try:
+            # 1. KA1 (0xFF)
             ka1_pkt = keep_alive.build_keep_alive1_packet(
                 salt=self.state.salt,
                 password=self.config.password,
@@ -90,8 +87,9 @@ class D_Protocol(BaseProtocol):
             resp_ka1, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
 
             if not keep_alive.parse_keep_alive1_response(resp_ka1):
-                raise ProtocolError("KA1 响应无效")
+                raise ProtocolError("KA1 响应无效 (非 0x07 开头)")
 
+            # 2. KA2 (0x07 序列)
             self._manage_keep_alive2_sequence()
             return True
 
@@ -112,7 +110,7 @@ class D_Protocol(BaseProtocol):
         try:
             self._challenge(max_retries=MAX_RETRIES_LOGOUT_CHALLENGE)
         except Exception:
-            self.logger.warning("登出前获取新 Salt 失败，使用旧 Salt。")
+            self.logger.warning("登出前获取新 Salt 失败，将使用旧 Salt 尝试。")
 
         try:
             pkt = logout.build_logout_packet(
@@ -148,6 +146,7 @@ class D_Protocol(BaseProtocol):
                 data, _ = self.net_client.receive(TIMEOUT_CHALLENGE)
                 salt = challenge.parse_challenge_response(data)
                 if salt:
+                    # Salt 一旦进入 State，即视为可信
                     self.state.salt = salt
                     return True
             except NetworkError:
@@ -158,6 +157,7 @@ class D_Protocol(BaseProtocol):
 
     def _login(self, max_retries=MAX_RETRIES_LOGIN) -> bool:
         """执行 Login 并更新 state.auth_info"""
+        # 直接透传 config 中的数据
         pkt = login.build_login_packet(
             username=self.config.username,
             password=self.config.password,
@@ -168,11 +168,11 @@ class D_Protocol(BaseProtocol):
             dhcp_server_bytes=self.config.dhcp_address_bytes,
             host_name=self.config.host_name,
             host_os=self.config.host_os,
+            os_info_bytes=self.config.os_info_bytes,  # [变更] 传入 OS 字节
             adapter_num=self.config.adapter_num,
             ipdog=self.config.ipdog,
             auth_version=self.config.auth_version,
             control_check_status=self.config.control_check_status,
-            magic_tail=self.config.magic_tail,
             ror_status=self.config.ror_status,
         )
 
@@ -190,7 +190,6 @@ class D_Protocol(BaseProtocol):
                     return True
 
                 if err_code:
-                    # 如果是服务器繁忙 (0x02)，允许重试
                     if err_code == constants.ERROR_CODE_SERVER_BUSY:
                         self.logger.warning(
                             f"登录响应：服务器繁忙 (0x02)，正在重试... ({i + 1}/{max_retries})"
@@ -198,89 +197,98 @@ class D_Protocol(BaseProtocol):
                         time.sleep(random.uniform(1.0, 2.0))
                         continue
 
-                    # 其他错误视为致命错误
-                    from ..exceptions import AuthError
-
                     raise AuthError(msg, err_code)
 
             except NetworkError:
-                pass  # 网络错误自动重试
+                pass
             time.sleep(1)
 
         raise NetworkError("Login 失败: 超过最大重试次数或无响应")
 
     def _manage_keep_alive2_sequence(self):
-        """处理复杂的 KA2 序列逻辑"""
         state = self.state
         cfg = self.config
 
-        def send_recv_ka2(pkt, desc):
-            self.net_client.send(pkt)
+        def send_and_recv(packet: bytes, description: str) -> bytes:
+            self.net_client.send(packet)
             data, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
             if not data:
-                raise ProtocolError(f"{desc} 无响应")
+                raise ProtocolError(f"{description} 无响应")
             return data
 
         if not state._ka2_initialized:
-            p1 = keep_alive.build_keep_alive2_packet(
-                state.keep_alive_serial_num,
-                b"\x00" * 4,
-                1,
-                cfg.host_ip_bytes,
-                cfg.keep_alive_version,
-                True,
+            # --- 1. 初始化阶段 (Initial Handshake) ---
+
+            # Step 1: Type 1 Packet (First Packet Flag=True)
+            packet_init_type1 = keep_alive.build_keep_alive2_packet(
+                packet_number=state.keep_alive_serial_num,
+                tail=b"\x00" * 4,
+                packet_type=1,
+                host_ip_bytes=cfg.host_ip_bytes,
+                keep_alive_version=cfg.keep_alive_version,
+                is_first_packet=True,
             )
-            send_recv_ka2(p1, "KA2 Init 1")
+            send_and_recv(packet_init_type1, "KA2 Init Step 1")
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
-            p2 = keep_alive.build_keep_alive2_packet(
-                state.keep_alive_serial_num,
-                b"\x00" * 4,
-                1,
-                cfg.host_ip_bytes,
-                cfg.keep_alive_version,
-                False,
+            # Step 2: Type 1 Packet (Normal)
+            packet_init_type1_follow = keep_alive.build_keep_alive2_packet(
+                packet_number=state.keep_alive_serial_num,
+                tail=b"\x00" * 4,
+                packet_type=1,
+                host_ip_bytes=cfg.host_ip_bytes,
+                keep_alive_version=cfg.keep_alive_version,
+                is_first_packet=False,
             )
-            d2 = send_recv_ka2(p2, "KA2 Init 2")
-            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(d2)
+            resp_step2 = send_and_recv(packet_init_type1_follow, "KA2 Init Step 2")
+
+            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(resp_step2)
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
-            p3 = keep_alive.build_keep_alive2_packet(
-                state.keep_alive_serial_num,
-                state.keep_alive_tail,
-                3,
-                cfg.host_ip_bytes,
-                cfg.keep_alive_version,
-                False,
+            # Step 3: Type 3 Packet (Contains IP)
+            packet_init_type3 = keep_alive.build_keep_alive2_packet(
+                packet_number=state.keep_alive_serial_num,
+                tail=state.keep_alive_tail,
+                packet_type=3,
+                host_ip_bytes=cfg.host_ip_bytes,
+                keep_alive_version=cfg.keep_alive_version,
+                is_first_packet=False,
             )
-            d3 = send_recv_ka2(p3, "KA2 Init 3")
-            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(d3)
+            resp_step3 = send_and_recv(packet_init_type3, "KA2 Init Step 3")
+
+            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(resp_step3)
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
             state._ka2_initialized = True
         else:
-            p_l1 = keep_alive.build_keep_alive2_packet(
-                state.keep_alive_serial_num,
-                state.keep_alive_tail,
-                1,
-                cfg.host_ip_bytes,
-                cfg.keep_alive_version,
-                False,
+            # --- 2. 循环保活阶段 (Keep Alive Loop) ---
+
+            # Loop Step 1: Type 1 Packet
+            packet_loop_type1 = keep_alive.build_keep_alive2_packet(
+                packet_number=state.keep_alive_serial_num,
+                tail=state.keep_alive_tail,
+                packet_type=1,
+                host_ip_bytes=cfg.host_ip_bytes,
+                keep_alive_version=cfg.keep_alive_version,
+                is_first_packet=False,
             )
-            d_l1 = send_recv_ka2(p_l1, "KA2 Loop 1")
-            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(d_l1)
+            resp_loop1 = send_and_recv(packet_loop_type1, "KA2 Loop Step 1")
+
+            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(resp_loop1)
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
-            p_l2 = keep_alive.build_keep_alive2_packet(
-                state.keep_alive_serial_num,
-                state.keep_alive_tail,
-                3,
-                cfg.host_ip_bytes,
-                cfg.keep_alive_version,
-                False,
+            # Loop Step 2: Type 3 Packet
+            packet_loop_type3 = keep_alive.build_keep_alive2_packet(
+                packet_number=state.keep_alive_serial_num,
+                tail=state.keep_alive_tail,
+                packet_type=3,
+                host_ip_bytes=cfg.host_ip_bytes,
+                keep_alive_version=cfg.keep_alive_version,
+                is_first_packet=False,
             )
-            d_l2 = send_recv_ka2(p_l2, "KA2 Loop 2")
-            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(d_l2)
+            resp_loop2 = send_and_recv(packet_loop_type3, "KA2 Loop Step 2")
+
+            state.keep_alive_tail = keep_alive.parse_keep_alive2_response(resp_loop2)
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
     def _reset_state(self):
