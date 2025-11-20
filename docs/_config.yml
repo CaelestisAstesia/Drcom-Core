@@ -1,0 +1,11 @@
+title: Drcom-Core
+description: 现代化 Dr.Com 认证协议核心库
+theme: jekyll-theme-slate
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
