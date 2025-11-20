@@ -1,68 +1,47 @@
 # 贡献指南
 
-感谢你抽出宝贵时间为 Drcom-Core 做出贡献！你的帮助对这个项目至关重要。
+感谢您有兴趣为 `drcom-core` 做出贡献！
 
-由于 Dr.Com 协议版本繁多，仅靠维护者寥寥几人无法覆盖所有学校和所有版本。我们非常欢迎来自不同环境的测试反馈、配置提交和代码贡献。
+无论您是想修复一个 Bug，还是想适配您学校的特殊协议版本，我们都非常欢迎。
 
-## 如何贡献
+## 开发环境搭建
 
-我们欢迎任何形式的贡献，包括但不限于：
+本项目要求 **Python 3.13+**。请确保您的环境满足要求。
 
-* 报告 Bug
-* 提交适配新学校的配置
-* 完善代码和功能 (PR)
-* 改进文档
+安装方式请参考：[安装指南](../install.md)
 
-## 报告 Bug (Issue)
+在提交代码前，请务必自己撰写相应的测试，并确保所有测试通过。
+```bash
+pytest
+```
 
-在提交 Issue 之前，请务必：
+## 代码规范
 
-1.  搜索现有的 Issue，确保你的问题没有被重复提交。
-2.  确保你使用的是最新版本的 `main` 分支代码。
+为了保持代码库的整洁和现代化，我们制定了以下规范：
 
-提交 Issue 时，请**务必**提供以下信息：
+1.  **类型提示 (Type Hinting)**
+    * **必须**: 所有函数必须包含参数和返回值的类型注解。
+    * **推荐**: 使用 Python 3.10+ 的新语法（如 `str | None` 代替 `Optional[str]`，`list[int]` 代替 `List[int]`）。
 
-1.  **学校名称和校区**：
-2.  **Dr.Com 客户端版本**：（例如 5.2.0 D 版）
-3.  **操作系统**：（例如 Windows 11 / Ubuntu 24.04 / macOS Sonoma）
-4.  **Python 版本**： (本项目要求 Python 3.13+)
-5.  **完整的日志输出**：在启用调试模式（设置 `DEBUG=True`）后，复现问题并粘贴完整的终端输出。
+2.  **Docstrings**
+    * 核心类和公共方法必须包含文档字符串。
+    * 说明函数的作用、参数含义和返回值。
 
-## 提交适配新学校的配置
+3.  **格式化**
+    * 推荐使用 `Black` 或 `Ruff` 进行代码格式化。
 
-注意！这部分内容在未来可能会有所变动，Drcom-Core将成为专门的API库。
+## 提交流程
 
-本项目通过 `.env` 文件 来管理不同学校的配置，而不是像旧项目那样使用独立的 Python 脚本。
+1.  在 GitHub 上创建一个 Issue，描述您想解决的问题或增加的功能。
+2.  在本地创建一个新的分支：`git checkout -b feature/xxx`。
+3.  编写代码并运行测试。
+4.  提交代码并 Push 到您的 Fork 仓库。
+5.  在 GitHub 上发起 Pull Request (PR)。
 
-如果你在你的学校成功运行了 `Drcom-Core`，我们非常欢迎你分享你的配置！
+## 适配新学校
 
-1.  复制你的 `.env` 文件（隐去你的 `USERNAME` 和 `PASSWORD`）。
-2.  创建一个新的 Issue，标题为 `[配置分享] XX大学XX校区 (D版/P版)`。
-3.  在 Issue 内容中贴出你的 `.env` 配置内容。
+如果您解决了某个特定学校的认证问题（例如使用了特殊的 `ipdog` 值或 `os_info`），请：
 
-我们会收集这些配置，未来可能会建立一个配置档案库。
-
-## 提交代码 (Pull Request)
-
-我们欢迎任何能提升代码质量、增加新功能或修复 Bug 的 PR。
-
-**开发环境设置**：
-
-1.  Fork 本仓库到你自己的 GitHub 账户。
-2.  Clone 你的 Fork 到本地：`git clone https://github.com/YOUR_USERNAME/Drcom-Core.git`
-3.  创建并切换到一个新的特性分支：`git checkout -b feature/my-new-feature`
-4.  安装依赖，`pip install -r requirements.txt`
-
-**编码规范**：
-
-本项目使用现代 Python 3.13+ 范式：
-
-1.  **代码风格**：请遵循 [PEP 8](https://www.python.org/dev/peps/pep-0008/) 规范。
-2.  **类型提示 (Type Hinting)**：请为所有函数定义和变量添加类型提示（可参考 `src/drcom_protocol/login.py`）。
-3.  **模块化**：核心认证逻辑应保持在 `src/drcom_core/` 中，而协议包的构建和解析应放在 `src/drcom_core/protocols/` 目录下。
-
-**提交 PR**：
-
-1.  提交你的修改：`git commit -m "feat: 增加XX功能"`
-2.  推送的你的分支：`git push origin feature/my-new-feature`
-3.  在 GitHub 上打开一个 Pull Request，清晰描述你所做的工作。
+1.  不要直接修改源码中的默认值。
+2.  在 Issue 中分享您的 `config.toml` 配置（隐去敏感信息）。
+3.  如果涉及协议逻辑的变更（例如某些学校不需要 KeepAlive2），请尝试通过增加配置项的方式来兼容，而不是硬编码。

@@ -1,9 +1,8 @@
-# State API
+# Base Protocol API
 
-::: drcom_core.state
+::: drcom_core.protocols.base
     options:
       show_root_heading: true
       show_source: true
       members:
-        - DrcomState
-        - CoreStatus
+        - BaseProtocol

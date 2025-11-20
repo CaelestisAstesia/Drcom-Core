@@ -1,22 +1,33 @@
 # Drcom-Core: 现代化 Dr.Com 认证协议核心库
 
-[](https://www.gnu.org/licenses/agpl-3.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-`drcom-core` 是一个基于 Python 3.13+ 开发的第三方 Dr.Com 认证核心库。
-
-本项目基于对 `drcom-generic` 项目和网络数据包 的分析，旨在实现**技术研究**与**互操作性 (Interoperability)**，为 Dr.Com 官方尚未支持的平台提供一个纯粹的 Python 核心库，用于实现基础的网络认证。
+## 简介
+`drcom-core` 是一个现代化的 Dr.COM 认证协议核心库。使用  **Python 3.13+** 构建，基于对 `drcom-generic` 项目和网络数据包的分析，采用了**引擎 (Engine) + 策略 (Strategy)** 的架构设计。旨在为开发者提供一个类型安全、易于扩展、高度解耦的认证底层，轻松集成到 CLI 工具、GUI 客户端或系统服务中。
 
 ## 特性
 
-  * **现代 Python**：完全使用 Python 3.13+ 重构，包含完整的类型提示 (Type Hinting)。
-  * **API 优先**：封装为 `DrcomCore` 类，提供清晰的 `login()`, `start_heartbeat()`, `logout()` 接口，易于二次开发（如 CLI 或 GUI）。
-  * **架构解耦**：采用“引擎 + 策略模式”重构，将协议实现 (`protocols`) 与核心引擎 (`core`)、网络 (`network`)、状态 (`state`) 分离，易于扩展支持 P 版、X 版等新协议。
-  * **配置分离**：通过字典对象注入配置，代码零侵入。
-  * **健壮的会话管理**：通过 `atexit` 钩子和 `threading.Event` 确保进程退出时能自动登出并清理会话。
+* **现代 Python**：利用 Python 3.13+ 最新特性构建，提供全覆盖的类型提示 (Type Hinting)。
+* **架构解耦**：核心引擎 (`DrcomCore`) 与协议策略 (`D_Protocol`) 完全分离，易于扩展 P 版、X 版等新协议。
+* **零依赖**：运行时仅依赖标准库（`tomllib` 等），轻量且安全。
+* **状态管理**：逻辑清晰的 `DrcomState` 会话生命周期管理。
+* **配置分离**：基于 TOML 的强类型配置，代码零侵入。
 
-## 重要声明与免责
+## 文档
 
-**本项目是一个独立的第三方实现，与 广州热点软件科技股份有限公司 没有任何关联，也未获得其官方认可或支持。**
+完整的安装指南、API 参考和使用示例请参阅我们的文档：
+
+* **在线文档**：TODO
+* **本地构建**：请参考 [docs/](docs/) 目录。
+
+## 贡献
+我们非常欢迎任何形式的贡献，特别是来自不同网络环境的配置和测试反馈。请在提交 PR 或 Issue 之前，阅读我们的《贡献指南》。
+
+## 免责声明
+
+本项目是一个独立的第三方实现，与 **广州热点软件科技股份有限公司** 没有任何关联，也未获得其官方认可或支持。
 
 "Dr.Com" 是广州热点软件科技股份有限公司的注册商标。本项目中提及该名称仅为指示性目的，用于说明本项目所实现的协议兼容性。
 
@@ -24,60 +35,15 @@
 
 **请您自行承担所有使用风险。您有责任在遵守当地法律法规和您所在机构的“网络管理规定”的前提下使用本软件。严禁将本软件用于任何非法或违规目的。**
 
-## 安装
-
-1.  本项目需要 **Python 3.13** 或更高版本，需要网络连接。
-2.  下载最新的Release软件压缩包，解压。
-3.  安装whl包（把命令中的version改成具体的版本号，如drcom_core-v1.0.0a1-py3-none-any.whl）：
-    ```bash
-    pip install drcom_core-version-py3-none-any.whl
-    ```
-4.  把run.py放在你认为方便的任何位置。
-
-## 使用
-
-本项目既可以作为即开即用的**命令行软件**运行，也可以作为**库**导入到你自己的项目中。
-
-### 1\. 配置
-
-无论使用哪种方式，你都必须先在run.py的同级目录创建配置文件：
-
-1.  复制配置模板：
-    ```bash
-    cp .env.example .env
-    ```
-    或者删掉文件名里的`.example`
-2.  编辑 `.env` 文件，填入你**自己**的认证信息（如 `USERNAME`, `PASSWORD`, `SERVER_IP`, `MAC` 等）。
-3.  对于部分学校用户，请先参考`drcom-generic`的各校配置文件、其他配置来源，或者简单抓包分析一下，我们暂时没有做到所有的院校都即开即用，仅支持吉林大学（暂时没有来自多种环境的开发者）。
-
-### 2\. 作为命令行工具（简单实现）
-1. 配置好 `.env` 文件后，直接运行`run.py`：
-    ```bash
-    python run.py
-    ```
-    程序将会自动读取 `.env` 配置，执行登录，启动心跳，并保持在线。
-
-2. 按 `Ctrl+C` 退出，程序会自动调用登出。
-
-### 3\. 作为库使用
-
-你可以 `from drcom_core import DrcomCore` 到你自己的 Python 项目中。
-
-我们提供了一个完整(但并非最小的)示例，请参考根目录下的 `run.py` 文件。
-
-## 贡献
-
-我们非常欢迎任何形式的贡献，特别是来自不同网络环境的配置和测试反馈。请在提交 PR 或 Issue 之前，阅读我们的《贡献指南》。如果你正在寻找可以开始的地方，请查看我们的[项目路线图](./ROADMAP.md)。
-
 ## 许可证
 
-本项目基于 **GNU Affero General Public License v3.0 (AGPLv3)** 许可证发布。
+本项目采用 **GNU Affero General Public License v3.0 (AGPLv3)** 许可证开源。
 
-简而言之：您可以自由地运行、研究、共享和修改本软件。但任何基于本项目的衍生作品（**包括通过网络提供服务**）都**必须**同样采用 AGPLv3 许可证开源。
+简而言之：您可以自由地运行、研究、共享和修改本软件。但任何基于本项目的衍生作品（包括通过网络提供服务）都必须同样采用 AGPLv3 许可证开源。
 
-详细文本请参见 `LICENSE` 文件。
+详细文本请参见 LICENSE 文件。
 
 ## 致谢
+本项目是在 `drcom-generic` (https://github.com/drcoms/drcom-generic) 项目的基础上进行的现代化重构。向`drcom-generic` 社区的前辈们致敬。
 
-  * 本项目是在 `drcom-generic` (https://github.com/drcoms/drcom-generic) 项目的基础上进行的现代化重构。向 `drcom-generic` 社区的前辈们致敬。
-  * 本项目的大部分代码和文档是在 AI 辅助工具 (Google Gemini Pro) 的帮助下完成的。
+本项目的大部分代码和文档是在 AI 辅助工具 (Google Gemini Pro) 的帮助下完成的，特此告知。
