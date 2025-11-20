@@ -1,0 +1,37 @@
+# .github/workflows/publish_docs.yml
+name: Publish Docs
+
+on:
+  push:
+    branches:
+      - main  # 当推送到 main 分支时触发
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material
+          # 如果你的 drcom-core 依赖也需要在构建文档时用到（例如自动提取 docstring），
+          # 请取消下面这行的注释：
+          pip install -e .
+
+      - name: Configure Git User
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      - name: Deploy to GitHub Pages
+        run: mkdocs gh-deploy --force

@@ -1,0 +1,91 @@
+# mkdocs.yml
+site_name: Drcom-Core
+site_description: 现代化 Dr.Com 认证协议核心库
+site_author: CaelestisAstesia
+repo_url: https://github.com/CaelestisAstesia/Drcom-Core
+repo_name: Drcom-Core
+
+theme:
+  name: material
+  language: zh
+  custom_dir: docs
+
+
+  palette:
+    - scheme: default
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+
+    - scheme: slate
+      primary: black
+      accent: lime
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到亮色模式
+
+
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - content.code.copy
+    - content.tooltips
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+            heading_level: 2
+            separate_signature: true
+            merge_init_into_class: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - attr_list
+
+nav:
+  - 首页: index.md
+  - 快速入门:
+    - 安装指南: install.md
+    - 快速上手: quickstart.md
+    - 配置文件参考: config_reference.md
+  - 贡献指南:
+    - 架构概览: contributor_guide/overview.md
+    - 开发环境: contributor_guide/CONTRIBUTING.md
+    - D 版协议详解: contributor_guide/protocol_d.md
+  - API 参考:
+    - Core (引擎): api_reference/core.md
+    - 协议基类: api_reference\protocols.md
+    - Config (配置): api_reference/config.md
+    - Network (网络): api_reference/network.md
+    - Exceptions (异常): api_reference/exceptions.md
+    - State (状态): api_reference/state.md
+  - 更新日志: changelog.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - attr_list

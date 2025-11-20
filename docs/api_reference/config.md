@@ -1,4 +1,9 @@
-# drcom_core.config
+# Configuration API
 
-::: drcom_core.config.DrcomConfig
-::: drcom_core.config.load_config_from_dict
+::: drcom_core.config
+    options:
+      show_root_heading: true
+      show_source: true
+      members:
+        - DrcomConfig
+        - load_config_from_toml

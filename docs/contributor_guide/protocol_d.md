@@ -1,105 +1,101 @@
-# D 版协议详解 (drcom-core 实现)
+# D 版 (5.2.0) 协议详解
 
-本文档映射了 Dr.Com 5.2.0(D) 版协议的认证流程与 `drcom-core` 库的内部代码实现。
+本文档详细解构了 Dr.COM 5.2.0(D) 版协议的交互流程，并映射到 `drcom-core` 的代码实现。
 
-本文档的目标读者是 `drcom-core` 的贡献者。
+## 1. 协议概览
 
-## 1. Challenge 阶段 (Code 0x01, 0x02)
+D 版协议基于 UDP，默认端口 `61440`。它是一个有状态的协议，认证过程强依赖于上一步获取的 `Salt` (盐值) 和 `Token` (尾巴)。
 
-**协议流：**
-客户端向服务器 `61440` 端口发送 `0x01` Challenge 请求包。服务器返回 `0x02` 响应包，其中 `[4:8]` 字节为关键的 4 字节 `Salt`。
+### 代码映射
+* **策略实现**: `src/drcom_core/protocols/version_520d.py`
+* **包构建器**: `src/drcom_core/protocols/*.py`
 
-**代码映射：**
+---
 
-* **包构建/解析 (纯函数)：**
-    * `src/drcom_core/protocols/challenge.py`
-    * `build_challenge_request()`: 构建 `0x01` 包。
-    * `parse_challenge_response()`: 从 `0x02` 响应中提取 `Salt`。
+## 2. 阶段一：Challenge (挑战)
 
-* **流程编排 (有状态)：**
-    * `src/drcom_core/protocols/version_520d.py`
-    * `D_Protocol._challenge()`: 此方法负责完整的 Challenge 流程。它调用 `build_challenge_request()`，使用 `self.net_client` 发送和接收，并调用 `parse_challenge_response()` 来获取 Salt，最后将其存入 `self.state.salt`。
+**目的**: 获取用于加密密码的随机盐值 (`Salt`)。
 
-## 2. Login 阶段 (Code 0x03, 0x04/0x05)
+### 交互流程
+1.  **Client -> Server (0x01)**: 发送 Challenge 请求。
+    * 包含：随机数种子。
+2.  **Server -> Client (0x02)**: 返回 Challenge 响应。
+    * 包含：**4 字节 Salt** (偏移量 4-7)。
 
-**协议流：**
-客户端使用上一步的 `Salt` 和用户凭据构建 `0x03` 登录包发送给服务器。服务器返回 `0x04` (成功) 或 `0x05` (失败)。
+### 代码实现
+* **构建**: `protocols.challenge.build_challenge_request()`
+* **解析**: `protocols.challenge.parse_challenge_response()`
+* **状态**: 这里的 Salt 会被存入 `self.state.salt`。
 
-**代码映射：**
+---
 
-* **包构建/解析 (纯函数)：**
-    * `src/drcom_core/protocols/login.py`
-    * `build_login_packet()`: 核心函数，负责组装复杂的 `0x03` 包，包括计算 MD5A, MD5B, MD5C (Checksum1) 和 `_calculate_checksum` (Checksum2)。它从 `DrcomConfig` 对象中获取所有必需参数（如 MAC, Host IP, Auth Version 等）。
-    * `parse_login_response()`: 负责解析 `0x04`（提取 `[23:39]` 的 `Auth_Info`）或 `0x05`（提取 `[4]` 的 `error_code`）。
+## 3. 阶段二：Login (登录)
 
-* **流程编排 (有状态)：**
-    * `src/drcom_core/protocols/version_520d.py`
-    * `D_Protocol._login()`: 此方法负责登录流程。它调用 `build_login_packet()`，发送包，并使用 `parse_login_response()` 处理结果。
-    * 如果成功，它会将 `Auth_Info` 存入 `self.state.auth_info` 并设置 `self.state.login_success = True`。
-    * 如果失败，它会检查 `error_code` 是否在 `constants.NO_RETRY_ERROR_CODES` 中，以决定是否立即中止登录。
+**目的**: 提交身份凭据。这是协议中最复杂的包。
 
-## 3. Keep Alive 1 (FF 包)
+### 交互流程
+1.  **Client -> Server (0x03)**: 发送登录包 (通常约 300+ 字节)。
+    * **核心加密**:
+        * `MD5A` = MD5(0x03 + 0x01 + Salt + Password)
+        * `MAC_XOR` = Mac Address ^ MD5A[0:6]
+        * `MD5B` = MD5(0x01 + Password + Salt + 4x00)
+    * **指纹字段**:
+        * `ControlCheckStatus` (0x20)
+        * `AdapterNum` (网卡序号)
+        * `OS Info` (系统指纹，由 `config.os_info_hex` 注入)
+2.  **Server -> Client (0x04/0x05)**:
+    * **0x04 (成功)**: 返回 **16 字节 AuthInfo/Token** (偏移量 23-38)。此 Token 是后续心跳的凭证。
+    * **0x05 (失败)**: 返回错误代码 (如 0x03 密码错误)。
 
-**协议流：**
-作为心跳的第一部分，客户端发送 `0xFF` 包（携带登录时用的 `Salt` 计算的 MD5 和 `Auth_Info`）。服务器回复 `0x07` 包作为确认。
+### 代码实现
+* **构建**: `protocols.login.build_login_packet()`
 
-**代码映射：**
+---
 
-* **包构建/解析 (纯函数)：**
-    * `src/drcom_core/protocols/keep_alive.py`
-    * `build_keep_alive1_packet()`: 构建 `0xFF` 包。
-    * `parse_keep_alive1_response()`: 验证响应是否以 `0x07` 开头。
+## 4. 阶段三：Keep Alive 1 (握手心跳)
 
-* **流程编排 (有状态)：**
-    * `src/drcom_core/protocols/version_520d.py`
-    * `D_Protocol.keep_alive()`: 心跳 API 的**第一部分**。它调用 `_send_and_receive_ka` 辅助函数来发送 `0xFF` 包并验证响应。
+**目的**: 确认登录成功，并建立心跳通道。
 
-## 4. Keep Alive 2 (07 包序列)
+### 交互流程
+1.  **Client -> Server (0xFF)**: 发送 `0xFF` 包。
+    * 包含：`MD5(0x03 + 0x01 + Salt + Password)` + `AuthInfo` (来自登录响应)。
+2.  **Server -> Client (0x07)**: 回复 `0x07` 包。
 
-**协议流：**
-紧接着 KA1 成功后，客户端**立即**执行 `0x07` 包序列。此序列的核心是 `tail` 值（服务器响应包的 `[16:20]` 字节）的传递，该逻辑继承自 `drcom-generic`。
+---
 
-* **首次序列 (三步握手)：**
-    1.  `[C->S]` Type 1 (使用 `KA2_FIRST_PACKET_VERSION` `0x0f27`), Num=0, Tail=0000
-    2.  `[S->C]` 回复 `0x07`
-    3.  `[C->S]` Type 1 (使用 `KEEP_ALIVE_VERSION` `0xdc02`), Num=1, Tail=0000
-    4.  `[S->C]` 回复 `0x07` (包含 **Tail A**)
-    5.  `[C->S]` Type 3 (含 `host_ip_bytes`), Num=2, Tail=**Tail A**
-    6.  `[S->C]` 回复 `0x07` (包含 **Tail B**)
-* **循环序列 (两步)：**
-    1.  `[C->S]` Type 1, Num=i, Tail=**Tail X** (来自上周期)
-    2.  `[S->C]` 回复 `0x07` (包含 **Tail Y**)
-    3.  `[C->S]` Type 3 (含 `host_ip_bytes`), Num=i+1, Tail=**Tail Y**
-    4.  `[S->C]` 回复 `0x07` (包含 **Tail X+1**)
+## 5. 阶段四：Keep Alive 2 (循环保活)
 
-**代码映射：**
+**目的**: 维持在线状态，并检测服务器是否存活。D 版心跳通过 `Tail` (尾巴) 机制来防止重放。
 
-* **包构建/解析 (纯函数)：**
-    * `src/drcom_core/protocols/keep_alive.py`
-    * `build_keep_alive2_packet()`: 构建 `0x07` 包，通过 `is_first_packet` 标志区分使用 `0x0f27` 还是配置的 `keep_alive_version`。
-    * `parse_keep_alive2_response()`: 从 `0x07` 响应中提取 `[16:20]` 的 `new_tail`。
+### 交互流程 (每 20 秒)
 
-* **流程编排 (有状态)：**
-    * `src/drcom_core/protocols/version_520d.py`
-    * `D_Protocol._manage_keep_alive2_sequence()`: **KA2 的核心逻辑**，在 `D_Protocol.keep_alive()` 的第二部分被调用。
-    * 该函数使用 `self.state._ka2_initialized` (布尔值) 来区分是执行“首次序列 (三步握手)”还是“循环序列 (两步)”。
-    * 它负责管理 `self.state.keep_alive_serial_num` (包序号) 和 `self.state.keep_alive_tail` (Tail 值) 的状态更新。
+这是一个 "Ping-Pong" 式的 Tail 交换过程：
 
-## 5. Logout 阶段 (Code 0x06)
+1.  **Client -> Server (Type 1)**:
+    * 发送上一次收到的 `Tail`。
+    * 如果是第一次，发送全 0。
+2.  **Server -> Client**:
+    * 返回一个新的 `Tail A`。
+3.  **Client -> Server (Type 3)**:
+    * 发送 `Tail A`。
+    * 此包额外包含客户端 IP。
+4.  **Server -> Client**:
+    * 返回一个新的 `Tail B` (用于下个周期)。
 
-**协议流：**
-客户端主动下线。基于 `drcom-generic` 的实现，安全的登出需要**先执行一次新的 Challenge** 获取新 Salt，然后使用**新 Salt** 和**登录时获取的 Auth_Info** 来构建 `0x06` 包。服务器通常不响应。
+### 代码实现
+* **逻辑**: `D_Protocol._manage_keep_alive2_sequence()`
+* **状态机**: 代码内部维护了 `_ka2_initialized` 标志，以区分是“初次握手”还是“稳定循环”。
 
-**代码映射：**
+---
 
-* **包构建/解析 (纯函数)：**
-    * `src/drcom_core/protocols/logout.py`
-    * `build_logout_packet()`: 构建 `0x06` 包。
-    * `parse_logout_response()`: 处理服务器的响应。`response_data` 为 `None` (即 `socket.timeout`) 在此被视作登出成功。
+## 6. 阶段五：Logout (注销)
 
-* **流程编排 (有状态)：**
-    * `src/drcom_core/protocols/version_520d.py`
-    * `D_Protocol.logout()`: 登出 API。
-    * 它首先调用 `self._challenge()` 获取新 Salt。
-    * 然后调用 `build_logout_packet()`。
-    * 最后，在 `finally` 块中，它**必须**调用 `self._reset_state()` 来清理 `self.state` 中的所有会话信息（`salt`, `auth_info` 等）。
+**目的**: 主动下线。
+
+### 交互流程
+1.  **Client**: 再次发起 **Challenge** 流程，获取一个新的 `New_Salt`。
+2.  **Client -> Server (0x06)**: 发送注销包。
+    * 加密：使用 `New_Salt` 和登录时获取的 `AuthInfo` 进行计算。
+
+### 注意
+很多 Dr.COM 实现会忽略注销前的 Challenge，直接使用旧 Salt，这会导致注销失败（服务器提示 "Password Error"）。Drcom-Core 严格遵循标准流程，确保注销成功率。
