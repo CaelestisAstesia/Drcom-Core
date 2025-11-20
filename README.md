@@ -15,12 +15,18 @@
 * **状态管理**：逻辑清晰的 `DrcomState` 会话生命周期管理。
 * **配置分离**：基于 TOML 的强类型配置，代码零侵入。
 
-## 文档
+## 文档索引
 
-完整的安装指南、API 参考和使用示例请参阅我们的文档：
-
-* **在线文档**：TODO
-* **本地构建**：请参考 [docs/](docs/) 目录。
+* **入门**
+    * [快速上手](docs/quickstart.md) - 运行演示脚本，立即上线。
+    * [配置文件参考](docs/configuration.md) - config.toml 所有参数详解。
+    * [安装指南](docs/install.md) - 从whl或源码安装。
+* **开发与原理**
+    * [架构设计与贡献指南](docs/architecture.md) - 理解引擎+策略模式。
+    * [D 版协议详解](docs/protocol_d.md) - 深入了解 Challenge, Salt, KeepAlive 机制。
+    * [API 参考手册](docs/api_reference.md) - 核心类与方法说明。
+* **其他**
+    * [更新日志](docs/changelog.md)
 
 ## 贡献
 我们非常欢迎任何形式的贡献，特别是来自不同网络环境的配置和测试反馈。请在提交 PR 或 Issue 之前，阅读我们的《贡献指南》。
