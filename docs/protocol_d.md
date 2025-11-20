@@ -1,3 +1,9 @@
+---
+layout: default
+title: D 版协议详解
+nav_order: 7
+---
+
 # D 版 (5.2.0) 协议详解
 
 本文档详细解构了 Dr.COM 5.2.0(D) 版协议的交互流程，并映射到 `drcom-core` 的代码实现。

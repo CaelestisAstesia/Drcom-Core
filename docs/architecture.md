@@ -1,3 +1,9 @@
+---
+layout: default
+title: 架构与原理
+nav_order: 5
+---
+
 # 架构与贡献指南
 
 drcom-core 的设计遵循高内聚、低耦合的原则，采用了引擎 (Engine) + 策略 (Strategy) 模式。

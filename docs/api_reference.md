@@ -1,3 +1,9 @@
+---
+layout: default
+title: API 参考
+nav_order: 6
+---
+
 # API 参考手册
 
 Drcom-Core 的公共 API 设计简洁，主要围绕 DrcomCore 引擎类展开。

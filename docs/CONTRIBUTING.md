@@ -1,3 +1,9 @@
+---
+layout: default
+title: 贡献指南
+nav_order: 8
+---
+
 # 贡献指南
 
 感谢您有兴趣为 `drcom-core` 做出贡献！
