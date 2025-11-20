@@ -5,7 +5,6 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# --- 核心元数据 ---
 name = "drcom-core"
 version = "1.0.0-alpha.2"
 description = "Dr.COM 认证核心库 (5.2.0 D版实现)"
@@ -13,14 +12,10 @@ readme = "README.md"
 license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.13"
 
-# --- 依赖 ---
-# 这是库的核心依赖。
 dependencies = [
     "python-dotenv>=1.0.0",
-    "netifaces>=0.11.0"
 ]
 
-# --- 分类器 (用于 PyPI) ---
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
@@ -31,13 +26,11 @@ classifiers = [
     "Topic :: System :: Networking :: Authentication",
 ]
 
-# --- 项目链接 ---
 [project.urls]
 Homepage = "https://github.com/CaelestisAstesia/Drcom-Core"
 Repository = "https://github.com/CaelestisAstesia/Drcom-Core"
 Issues = "https://github.com/CaelestisAstesia/Drcom-Core/issues"
 
-# --- 包查找配置 ---
 [tool.setuptools.packages.find]
 where = ["src"]
 [tool.pytest.ini_options]
