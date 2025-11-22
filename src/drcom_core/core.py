@@ -1,6 +1,9 @@
 # src/drcom_core/core.py
 """
 Dr.COM 认证核心库 - 认证引擎 (Engine)
+
+本模块定义了库的最高层级接口 `DrcomCore`。
+它充当"编排者"的角色，协调网络客户端、状态机和具体的协议策略。
 """
 
 import logging
@@ -20,6 +23,13 @@ logger = logging.getLogger(__name__)
 class DrcomCore:
     """
     Dr.COM 认证核心引擎。
+
+    这是外部应用 (CLI/GUI) 与本库交互的唯一入口点。
+    它维护了单例的会话状态 (State) 和网络连接 (NetworkClient)。
+
+    Attributes:
+        config (DrcomConfig): 当前使用的配置对象 (只读)。
+        state (DrcomState): 当前会话的动态状态 (包含 Salt, Token, Status)。
     """
 
     def __init__(
@@ -27,6 +37,18 @@ class DrcomCore:
         config: DrcomConfig,
         status_callback: Callable[[CoreStatus, str], None] | None = None,
     ) -> None:
+        """
+        初始化核心引擎。
+
+        Args:
+            config: 已加载且校验通过的配置对象。
+            status_callback: (可选) 当引擎状态发生变更时调用的回调函数。
+                                函数签名应为 `(status: CoreStatus, msg: str) -> None`。
+                                该回调可能会在后台线程 (心跳线程) 中被调用，请注意线程安全。
+
+        Raises:
+            ConfigError: 如果依赖组件 (如 NetworkClient) 初始化失败。
+        """
         self.config = config
         self._callback = status_callback
 
@@ -48,6 +70,23 @@ class DrcomCore:
         self._update_status(CoreStatus.IDLE, "引擎已就绪")
 
     def login(self) -> bool:
+        """
+        执行同步登录流程。
+
+        此方法会阻塞当前线程，直到登录成功、失败或超时。
+        流程包括：
+        1. 检查当前在线状态 (若已在线则直接返回 True)。
+        2. 调用协议策略执行 Challenge (获取 Salt)。
+        3. 调用协议策略执行 Login (获取 Token)。
+
+        Returns:
+            bool: True 表示登录成功且状态已切换为 LOGGED_IN；False 表示登录失败。
+
+        Raises:
+            AuthError: 当服务器明确拒绝登录时抛出 (如密码错误、欠费)。
+                       异常对象中包含具体的 error_code。
+            NetworkError: 当网络通信发生不可恢复的错误时抛出 (如端口占用、物理断网)。
+        """
         self._update_status(CoreStatus.CONNECTING, "正在登录...")
 
         if self.state.is_online:
@@ -72,6 +111,17 @@ class DrcomCore:
             return False
 
     def start_heartbeat(self) -> None:
+        """
+        启动后台心跳守护线程。
+
+        前置条件:
+            必须先调用 `login()` 并返回 True (即当前状态为 LOGGED_IN)。
+
+        行为:
+            创建一个名为 "DrcomHeartbeat" 的守护线程，每隔固定时间 (通常 20s)
+            执行一次 Keep-Alive 交互。如果心跳连续失败 3 次，线程将自动退出
+            并将状态更新为 OFFLINE。
+        """
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
             return
 
@@ -86,6 +136,15 @@ class DrcomCore:
         self._heartbeat_thread.start()
 
     def stop(self) -> None:
+        """
+        停止引擎并清理资源。
+
+        行为:
+        1. 发送停止信号给心跳线程，并等待其结束 (最多 2s)。
+        2. 尝试发送 Logout 包 (尽力而为，不保证成功)。
+        3. 关闭底层的 UDP Socket。
+        4. 将状态重置为 OFFLINE。
+        """
         self._stop_event.set()
         if self._heartbeat_thread:
             self._heartbeat_thread.join(timeout=2)
