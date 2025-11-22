@@ -18,7 +18,7 @@ dependencies = []
 
 # --- 分类器 (用于 PyPI) ---
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: GNU Affero General Public License v3 (AGPLv3)",
