@@ -21,4 +21,4 @@ __all__ = [
     "ProtocolError",
     "AuthError",
 ]
-__version__ = "1.0.0a3"
+__version__ = "1.0.0b1"
