@@ -19,7 +19,7 @@
 
 * **入门**
     * [快速上手](docs/quickstart.md) - 运行演示脚本，立即上线。
-    * [配置文件参考](docs/configuration.md) - config.toml 所有参数详解。
+    * [配置文件参考](docs/config_reference.md) - config.toml 所有参数详解。
     * [安装指南](docs/install.md) - 从whl或源码安装。
 * **开发与原理**
     * [架构设计与贡献指南](docs/architecture.md) - 理解引擎+策略模式。
