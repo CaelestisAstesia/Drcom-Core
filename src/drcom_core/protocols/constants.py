@@ -71,20 +71,6 @@ AUTH_INFO_END_INDEX = 39
 AUTH_INFO_LENGTH = 16
 ERROR_CODE_INDEX = 4
 
-# 错误代码
-ERROR_CODE_IN_USE = 0x01
-ERROR_CODE_SERVER_BUSY = 0x02
-ERROR_CODE_WRONG_PASS = 0x03
-ERROR_CODE_INSUFFICIENT = 0x04
-ERROR_CODE_FROZEN = 0x05
-ERROR_CODE_WRONG_IP = 0x07
-ERROR_CODE_WRONG_MAC = 0x0B
-ERROR_CODE_TOO_MANY_IP = 0x14
-ERROR_CODE_WRONG_VERSION = 0x15
-ERROR_CODE_WRONG_IP_MAC = 0x16
-ERROR_CODE_FORCE_DHCP = 0x17
-
-
 # =========================================================================
 # Keep Alive 常量
 # =========================================================================
