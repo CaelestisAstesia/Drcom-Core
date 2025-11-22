@@ -158,28 +158,11 @@ def parse_login_response(
         if len(response_data) > constants.ERROR_CODE_INDEX:
             error_code = response_data[constants.ERROR_CODE_INDEX]
 
-        err_msg = "未知错误"
-        # 简单的映射，实际生产可以做成字典
-        if error_code == constants.ERROR_CODE_IN_USE:
-            err_msg = "账号在线或MAC绑定错误"
-        elif error_code == constants.ERROR_CODE_WRONG_PASS:
-            err_msg = "密码错误"
-        elif error_code == constants.ERROR_CODE_INSUFFICIENT:
-            err_msg = "余额不足或欠费"
-        elif error_code == constants.ERROR_CODE_WRONG_MAC:
-            err_msg = "MAC地址不匹配"
-        elif error_code == constants.ERROR_CODE_WRONG_IP:
-            err_msg = "IP地址不匹配"
-        elif error_code == constants.ERROR_CODE_WRONG_VERSION:
-            err_msg = "客户端版本不匹配"
-        elif error_code == constants.ERROR_CODE_FROZEN:
-            err_msg = "账号被冻结"
-
         return (
             False,
             None,
             error_code,
-            f"登录失败: {err_msg} (Code: {hex(error_code) if error_code else 'N/A'})",
+            f"Auth rejected by server (Code: {hex(error_code) if error_code is not None else 'N/A'})",
         )
 
     else:

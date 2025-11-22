@@ -8,9 +8,9 @@ import random
 import time
 from typing import TYPE_CHECKING
 
-from ..exceptions import AuthError, NetworkError, ProtocolError
+from ..exceptions import AuthError, AuthErrorCode, NetworkError, ProtocolError
 from ..state import CoreStatus
-from . import challenge, constants, keep_alive, login, logout
+from . import challenge, keep_alive, login, logout
 from .base import BaseProtocol
 
 if TYPE_CHECKING:
@@ -168,7 +168,7 @@ class D_Protocol(BaseProtocol):
             dhcp_server_bytes=self.config.dhcp_address_bytes,
             host_name=self.config.host_name,
             host_os=self.config.host_os,
-            os_info_bytes=self.config.os_info_bytes,  # [变更] 传入 OS 字节
+            os_info_bytes=self.config.os_info_bytes,
             adapter_num=self.config.adapter_num,
             ipdog=self.config.ipdog,
             auth_version=self.config.auth_version,
@@ -190,7 +190,7 @@ class D_Protocol(BaseProtocol):
                     return True
 
                 if err_code:
-                    if err_code == constants.ERROR_CODE_SERVER_BUSY:
+                    if err_code == AuthErrorCode.SERVER_BUSY:
                         self.logger.warning(
                             f"登录响应：服务器繁忙 (0x02)，正在重试... ({i + 1}/{max_retries})"
                         )
