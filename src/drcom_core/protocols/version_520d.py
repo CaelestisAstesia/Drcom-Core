@@ -29,6 +29,9 @@ MAX_RETRIES_CHALLENGE = 5
 MAX_RETRIES_LOGIN = 3
 MAX_RETRIES_LOGOUT_CHALLENGE = 1
 
+MAX_PACKET_RETRIES = 3
+RETRY_INTERVAL = 1.0
+
 
 class D_Protocol(BaseProtocol):
     """
@@ -83,8 +86,10 @@ class D_Protocol(BaseProtocol):
                 include_trailing_zeros=True,
             )
 
-            self.net_client.send(ka1_pkt)
-            resp_ka1, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
+            # 使用带重试的发送
+            resp_ka1 = self._send_and_recv_with_retry(
+                ka1_pkt, TIMEOUT_KEEP_ALIVE, "KA1 Heartbeat"
+            )
 
             if not keep_alive.parse_keep_alive1_response(resp_ka1):
                 raise ProtocolError("KA1 响应无效 (非 0x07 开头)")
@@ -135,6 +140,28 @@ class D_Protocol(BaseProtocol):
             self.logger.info("本地会话已清理。")
 
     # --- 内部实现 ---
+    def _send_and_recv_with_retry(
+        self, packet: bytes, timeout: float, description: str
+    ) -> bytes:
+        """
+        [新增] 带重试机制的收发辅助函数。
+        如果接收超时，会自动重发 packet，直到达到 MAX_PACKET_RETRIES。
+        """
+        for i in range(MAX_PACKET_RETRIES + 1):
+            try:
+                self.net_client.send(packet)
+                data, _ = self.net_client.receive(timeout)
+                return data
+            except NetworkError:
+                if i < MAX_PACKET_RETRIES:
+                    self.logger.warning(
+                        f"{description} 超时，正在重发 ({i + 1}/{MAX_PACKET_RETRIES})..."
+                    )
+                    time.sleep(RETRY_INTERVAL)
+                else:
+                    self.logger.error(f"{description} 失败：超过最大重试次数")
+                    raise
+        raise NetworkError(f"{description} 失败")
 
     def _challenge(self, max_retries=MAX_RETRIES_CHALLENGE) -> bool:
         """执行 Challenge 并更新 state.salt"""
@@ -210,11 +237,9 @@ class D_Protocol(BaseProtocol):
         cfg = self.config
 
         def send_and_recv(packet: bytes, description: str) -> bytes:
-            self.net_client.send(packet)
-            data, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
-            if not data:
-                raise ProtocolError(f"{description} 无响应")
-            return data
+            return self._send_and_recv_with_retry(
+                packet, TIMEOUT_KEEP_ALIVE, description
+            )
 
         if not state._ka2_initialized:
             # --- 1. 初始化阶段 (Initial Handshake) ---
