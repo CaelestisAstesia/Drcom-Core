@@ -8,6 +8,7 @@ import logging
 import random
 import struct
 
+from ..exceptions import AuthErrorCode
 from . import constants
 
 logger = logging.getLogger(__name__)
@@ -158,11 +159,38 @@ def parse_login_response(
         if len(response_data) > constants.ERROR_CODE_INDEX:
             error_code = response_data[constants.ERROR_CODE_INDEX]
 
+        err_msg = "未知错误"
+
+        if error_code is not None:
+            try:
+                e_enum = AuthErrorCode(error_code)
+                match e_enum:
+                    case AuthErrorCode.IN_USE:
+                        err_msg = "账号在线或MAC绑定错误"
+                    case AuthErrorCode.WRONG_PASSWORD:
+                        err_msg = "密码错误"
+                    case AuthErrorCode.INSUFFICIENT_FUNDS:
+                        err_msg = "余额不足或欠费"
+                    case AuthErrorCode.WRONG_MAC:
+                        err_msg = "MAC地址不匹配"
+                    case AuthErrorCode.WRONG_IP:
+                        err_msg = "IP地址不匹配"
+                    case AuthErrorCode.WRONG_VERSION:
+                        err_msg = "客户端版本不匹配"
+                    case AuthErrorCode.FROZEN:
+                        err_msg = "账号被冻结"
+                    case AuthErrorCode.SERVER_BUSY:
+                        err_msg = "服务器繁忙"
+                    case _:
+                        err_msg = f"其他错误 ({e_enum.name})"
+            except ValueError:
+                pass
+
         return (
             False,
             None,
             error_code,
-            f"Auth rejected by server (Code: {hex(error_code) if error_code is not None else 'N/A'})",
+            f"登录失败: {err_msg} (Code: {hex(error_code) if error_code is not None else 'N/A'})",
         )
 
     else:
