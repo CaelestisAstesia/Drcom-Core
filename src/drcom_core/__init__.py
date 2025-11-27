@@ -3,7 +3,12 @@
 drcom-core: 现代化 Dr.Com 认证协议核心库
 """
 
-from .config import DrcomConfig, load_config_from_toml, validate_and_create_config
+from .config import (
+    DrcomConfig,
+    create_config_from_dict,
+    load_config_from_toml,
+    validate_and_create_config,  # 保留1.0.0b1的run.py兼容
+)
 from .core import DrcomCore
 from .exceptions import AuthError, ConfigError, DrcomError, NetworkError, ProtocolError
 from .state import CoreStatus, DrcomState
@@ -14,6 +19,7 @@ __all__ = [
     "DrcomState",
     "CoreStatus",
     "load_config_from_toml",
+    "create_config_from_dict",
     "validate_and_create_config",
     "DrcomError",
     "ConfigError",
@@ -21,4 +27,5 @@ __all__ = [
     "ProtocolError",
     "AuthError",
 ]
-__version__ = "1.0.0b1"
+
+__version__ = "1.0.0"

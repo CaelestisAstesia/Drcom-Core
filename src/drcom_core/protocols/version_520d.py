@@ -45,7 +45,7 @@ class D_Protocol(BaseProtocol):
         net_client: "NetworkClient",
     ):
         super().__init__(config, state, net_client)
-        self.logger.info("Dr.COM D 版协议策略已加载 (v1.0.0a3)。")
+        self.logger.info("Dr.COM D 版协议策略已加载 (v1.0.0)。")
 
     def login(self) -> bool:
         """
