@@ -42,12 +42,12 @@ def setup_logging():
 
     # 库日志
     lib_logger = logging.getLogger("drcom_core")
-    lib_logger.setLevel(logging.INFO)  # 生产环境建议 INFO，调试改 DEBUG
+    lib_logger.setLevel(logging.DEBUG)  # 生产环境建议 INFO，调试改 DEBUG
     lib_logger.addHandler(console_handler)
 
     # 应用日志
     app_logger = logging.getLogger("App")
-    app_logger.setLevel(logging.INFO)
+    app_logger.setLevel(logging.DEBUG)
     app_logger.addHandler(console_handler)
 
     return app_logger

@@ -172,6 +172,7 @@ cython_debug/
 .vscode/
 *.sln.docstates
 *.suo
+.VSCodeCounter/
 
 # Ruff stuff:
 .ruff_cache/
