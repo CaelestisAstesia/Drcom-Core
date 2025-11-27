@@ -8,22 +8,26 @@ build-backend = "setuptools.build_meta"
 # --- 核心元数据 ---
 name = "drcom-core"
 version = "1.0.0"
-description = "Dr.COM 认证核心库"
+description = "现代化、类型安全的 Dr.COM 认证协议核心库"
 readme = "README.md"
 license = "AGPL-3.0-only"
 requires-python = ">=3.13"
+authors = [{ name = "Astesia"}]
+keywords = ["drcom", "networking", "authentication", "campus-network"]
 
 # --- 依赖 ---
 dependencies = []
 
-# --- 分类器 (用于 PyPI) ---
+# --- 分类器 (PyPI Metadata) ---
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: System :: Networking :: Authentication",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Typing :: Typed",
 ]
 
 # --- 项目链接 ---
@@ -31,6 +35,7 @@ classifiers = [
 Homepage = "https://github.com/CaelestisAstesia/Drcom-Core"
 Repository = "https://github.com/CaelestisAstesia/Drcom-Core"
 Issues = "https://github.com/CaelestisAstesia/Drcom-Core/issues"
+Documentation = "https://github.com/CaelestisAstesia/Drcom-Core/tree/main/docs"
 
 # --- 包查找配置 ---
 [tool.setuptools.packages.find]
@@ -38,3 +43,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]

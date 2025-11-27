@@ -8,6 +8,20 @@ nav_order: 9
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/) 语义化版本规范。
 
+## [1.0.0] - 2025-11-27
+
+**Official Release: 第一个正式版本**
+
+Drcom-Core 经过了 Beta 阶段的测试与验证，现发布第一个正式版本。
+此版本API已冻结，适合用于生产环境。
+
+### 变更 (Changed)
+* **元数据**: 修正了 PyPI 分类器状态为 `Production/Stable`。
+* **文档**: 清理了代码库中的注释拼写错误和格式问题。
+* **版本**: 移除 Beta 后缀，正式定版为 1.0.0。
+
+---
+
 ## [1.0.0b1] - 2025-11-22
 
 **Beta 1 Release: 生产环境就绪 (Production Ready)**

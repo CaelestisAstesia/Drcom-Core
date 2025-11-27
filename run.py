@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # run.py
 """
-Drcom-Core V1.0.0b1 参考实现
+Drcom-Core V1.0.0 参考实现
 
 功能特点：
 1. 全自动守护：掉线自动重连，异常自动恢复。
