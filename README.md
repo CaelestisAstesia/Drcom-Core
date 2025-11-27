@@ -1,11 +1,14 @@
+# README.md
+
 # Drcom-Core: 现代化 Dr.Com 认证协议核心库
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Release: 1.0.0](https://img.shields.io/badge/release-v1.0.0-green.svg)](https://github.com/CaelestisAstesia/Drcom-Core/releases)
 
 ## 简介
-`drcom-core` 是一个现代化的 Dr.COM 认证协议核心库。使用  **Python 3.13+** 构建，基于对 `drcom-generic` 项目和网络数据包的分析，采用了**引擎 (Engine) + 策略 (Strategy)** 的架构设计。旨在为开发者提供一个类型安全、易于扩展、高度解耦的认证底层，轻松集成到 CLI 工具、GUI 客户端或系统服务中。
+`drcom-core` 是一个现代化的 Dr.COM 认证协议核心库。使用 **Python 3.13+** 构建，基于对 `drcom-generic` 项目和网络数据包的分析，采用了**引擎 (Engine) + 策略 (Strategy)** 的架构设计。旨在为开发者提供一个类型安全、易于扩展、高度解耦的认证底层，轻松集成到 CLI 工具、GUI 客户端或系统服务中。
 
 ## 特性
 
@@ -20,7 +23,7 @@
 * **入门**
     * [快速上手](docs/quickstart.md) - 运行演示脚本，立即上线。
     * [配置文件参考](docs/config_reference.md) - config.toml 所有参数详解。
-    * [安装指南](docs/install.md) - 从whl或源码安装。
+    * [安装指南](docs/install.md) - 从 whl 或源码安装。
 * **开发与原理**
     * [架构设计与贡献指南](docs/architecture.md) - 理解引擎+策略模式。
     * [D 版协议详解](docs/protocol_d.md) - 深入了解 Challenge, Salt, KeepAlive 机制。

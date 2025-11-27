@@ -2,11 +2,11 @@
 """
 Dr.COM 协议层 (Protocol Layer)
 
-本包负责协议数据包的haole纯粹构建 (Build) 与解析 (Parse)。
-
-- 不包含任何 socket 操作或网络 I/O。
-- 不包含任何状态管理 (State)。
-- 不依赖于 core 或 network 层。
+本包负责协议数据包的构建 (Build) 与解析 (Parse)。
+设计原则：
+1. 纯函数式：不包含任何 Socket 操作或网络 I/O。
+2. 无状态：不包含任何状态管理 (State)。
+3. 低耦合：不依赖于 core 或 network 层。
 """
 
 from . import constants

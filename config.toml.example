@@ -1,5 +1,5 @@
 # config.toml.example
-# Drcom-Core v1.0.0a3 配置文件模板
+# Drcom-Core v1.0.0 配置文件模板
 # 请复制此文件为 config.toml 并修改为你的实际配置。
 # 吉林大学的同学只需要修改username、password、mac、host_ip、dhcp_server、host_name字段为实际情况
 # 目前暂不支持自动化的多网络切换，JLU.PC和有线网需要根据实际情况改值
