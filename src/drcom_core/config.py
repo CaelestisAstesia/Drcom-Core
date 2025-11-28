@@ -54,7 +54,6 @@ class DrcomConfig:
 def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
     """
     [Factory] 通用工厂：将字典转换为配置对象。
-    (原 validate_and_create_config，改名以提升语义，保留旧名兼容)
     """
     try:
         # --- 内部辅助函数 ---
@@ -120,10 +119,6 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
         if isinstance(e, ConfigError):
             raise
         raise ConfigError(f"配置校验失败: {e}") from e
-
-
-# 保留旧名称兼容
-validate_and_create_config = create_config_from_dict
 
 
 def load_config_from_toml(file_path: Path, profile: str = "default") -> DrcomConfig:

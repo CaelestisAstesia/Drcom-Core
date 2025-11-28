@@ -26,7 +26,6 @@ classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Topic :: System :: Networking :: Authentication",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Typing :: Typed",
 ]
 
