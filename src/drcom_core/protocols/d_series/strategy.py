@@ -9,7 +9,7 @@ Dr.COM D系列策略 (Strategy) - v1.0.0
 
 注意：
 - 严禁在此处硬编码任何魔法数字，所有常量必须来自 config 或 constants。
-- 严禁使用 print，必须使用 logger。
+- 必须使用 logger。
 """
 
 import logging
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # --- 超时设置 (Fail Fast) ---
-# 既然外层有重试机制，内层超时应尽量果断
+# 外层做重试机制，内层超时尽量果断
 TIMEOUT_CHALLENGE = 3.0
 TIMEOUT_LOGIN = 5.0
 TIMEOUT_KEEP_ALIVE = 3.0
@@ -46,8 +46,7 @@ class Protocol520D(BaseProtocol):
     """
     Dr.COM 5.2.0(D) 版协议策略实现。
 
-    实现了标准 D 版的全套交互流程。通过继承此类并重写部分方法，
-    可以轻松扩展出 6.0D 等变种。
+    实现了标准 D 版的全套交互流程。
     """
 
     def __init__(

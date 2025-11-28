@@ -55,6 +55,7 @@ ERROR_CODE_INDEX = 4  # 0x05 包中错误码的位置
 # MD5 计算辅助
 MD5_SALT_PREFIX = b"\x03\x01"
 MD5B_SALT_PREFIX = b"\x01"
+MD5B_SALT_SUFFIX = b"\x00" * 4
 MD5C_SUFFIX = b"\x14\x00\x07\x0b"
 
 # Checksum 计算辅助
