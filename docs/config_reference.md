@@ -8,8 +8,6 @@ nav_order: 4
 
 `drcom-core` 使用 **TOML** 格式进行配置管理。默认配置文件名为 `config.toml`。
 
-所有配置项都必须位于 `[drcom]` 节之下。
-
 ## 1. 核心身份凭据 (Identity)
 
 这些是认证通过所必须的最基本信息。
@@ -62,3 +60,49 @@ nav_order: 4
 | `auth_version` | 2 Bytes | 认证版本号 | `"2c00"` (对应 5.2.0 D) |
 | `control_check_status` | 1 Byte | 控制位状态 | `"20"` |
 | `keep_alive_version` | 2 Bytes | 心跳协议版本号 | `"dc02"` |
+
+---
+
+## 附录：完整配置模板 (Configuration Template)
+
+您可以直接复制以下内容到 `config.toml` 文件中，并根据实际情况修改。
+
+```toml
+# config.toml
+# Drcom-Core 配置文件
+# 吉林大学的同学只需要修改 username, password, mac, host_ip, dhcp_server, host_name
+
+[drcom]
+# --- 核心身份凭据 ---
+username = "your_username"
+password = "your_password"
+server_ip = "10.100.61.3"      # 认证服务器 IP
+mac = "00-11-22-33-44-55"      # 你的 MAC 地址 (支持 - 或 :)
+
+# --- 网络环境 ---
+host_ip = "192.168.1.100"      # 本机 IP (ipconfig/ifconfig 获取)
+primary_dns = "10.10.10.10"    # 首选 DNS
+dhcp_server = "192.168.1.1"    # 网关/DHCP 服务器
+bind_ip = "0.0.0.0"            # 本地绑定 IP (通常无需修改)
+drcom_port = 61440             # 协议端口 (通常无需修改)
+
+# --- 协议控制 ---
+protocol_version = "D"         # 目前仅支持 "D" 版
+ror_status = false             # ROR 防重放 (暂未实现，保持 false)
+
+# --- 主机指纹 ---
+host_name = "Drcom-Core"       # 主机名 (任意字符串)
+host_os = "Windows 10"         # 操作系统标识 (任意字符串)
+
+# 系统环境指纹 (OS Info) - 必需
+# 这是一段表示系统版本的二进制数据 (Hex 格式)。
+# 示例值对应 Windows 10 (Major 6, Build 10240)
+os_info_hex = "940000000600000000000000280a000002000000"
+
+# --- 协议魔数 (Hex 格式, 无需 0x 前缀) ---
+# 以下值为 Dr.COM 5.2.0(D) 版的标准默认值
+adapter_num = "01"
+ipdog = "01"
+auth_version = "2c00"
+control_check_status = "20"
+keep_alive_version = "dc02"

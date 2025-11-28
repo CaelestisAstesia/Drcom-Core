@@ -191,3 +191,5 @@ cython_debug/
 #  These files are personal configurations and should not be shared.
 config.toml
 
+# Legacy Source Code
+src_legacy/
