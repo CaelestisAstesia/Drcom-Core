@@ -1,20 +1,21 @@
 # src/drcom_core/__init__.py
 """
-Drcom-Core: 现代化 Dr.Com 认证协议核心库 (v1.0.0)
-
-本模块导出所有公共 API，外部应用应当仅从此处导入所需组件，
-而不应直接访问子模块。
-
-Usage:
-    from drcom_core import DrcomCore, load_config_from_toml
-
-    config = load_config_from_toml("config.toml")
-    core = DrcomCore(config)
-    core.login()
+Drcom-Core v1.0.0
+现代化、高扩展的 Dr.COM 认证协议核心库。
 """
 
-from .config import DrcomConfig, load_config_from_toml, validate_and_create_config
+# 暴露核心配置
+from .config import (
+    DrcomConfig,
+    create_config_from_dict,
+    load_config_from_env,
+    load_config_from_toml,
+)
+
+# 暴露引擎与状态
 from .core import DrcomCore
+
+# 暴露异常体系 (方便上层 try-except)
 from .exceptions import (
     AuthError,
     AuthErrorCode,
@@ -25,23 +26,20 @@ from .exceptions import (
 )
 from .state import CoreStatus, DrcomState
 
+__version__ = "1.0.0"
+
 __all__ = [
-    # 核心引擎
     "DrcomCore",
-    # 配置与模型
     "DrcomConfig",
-    "load_config_from_toml",
-    "validate_and_create_config",
-    # 状态管理
     "DrcomState",
     "CoreStatus",
-    # 异常体系
+    "create_config_from_dict",
+    "load_config_from_env",
+    "load_config_from_toml",
     "DrcomError",
     "ConfigError",
     "NetworkError",
-    "ProtocolError",
     "AuthError",
     "AuthErrorCode",
+    "ProtocolError",
 ]
-
-__version__ = "1.0.0"
