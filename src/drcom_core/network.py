@@ -69,7 +69,8 @@ class NetworkClient:
 
             logger.debug(f"Socket 绑定成功: {bind_addr}")
 
-        except socket.error as e:
+        except Exception as e:
+            # [Enhanced] 捕获所有绑定阶段的错误 (包括 PermissionError, OSError)
             # 如果绑定失败，确保释放资源
             self.close()
             raise NetworkError(f"端口绑定失败 {bind_addr}: {e}") from e
@@ -90,8 +91,11 @@ class NetworkClient:
         target = (self.config.server_address, self.config.server_port)
         try:
             self.sock.sendto(packet, target)
-        except socket.error as e:
-            raise NetworkError(f"发送失败: {e}") from e
+        except OSError as e:
+            # [Enhanced] 捕获 Network is unreachable 等系统级 IO 错误
+            raise NetworkError(f"发送失败 (IO): {e}") from e
+        except Exception as e:
+            raise NetworkError(f"发送失败 (Unknown): {e}") from e
 
     def receive(self, timeout: float) -> Tuple[bytes, Tuple[str, int]]:
         """
@@ -126,8 +130,12 @@ class NetworkClient:
             # 抛出异常由上层策略层的重试逻辑处理
             raise NetworkError(f"接收超时 ({timeout}s)") from None
 
-        except socket.error as e:
-            raise NetworkError(f"接收错误: {e}") from e
+        except OSError as e:
+            # [Enhanced] 捕获 WinError 10054 (远程主机强迫关闭连接) 等
+            raise NetworkError(f"接收错误 (IO): {e}") from e
+
+        except Exception as e:
+            raise NetworkError(f"接收错误 (Unknown): {e}") from e
 
     def close(self) -> None:
         """
