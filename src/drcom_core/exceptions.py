@@ -11,21 +11,39 @@ from typing import Optional
 
 
 class DrcomError(Exception):
-    """Dr.COM 核心库的所有内部异常的基类"""
+    """
+    Dr.COM 核心库的所有内部异常的基类。
+
+    上层应用可以通过捕获此异常来处理所有由 drcom-core 抛出的已知错误。
+    """
 
     pass
 
 
 class ConfigError(DrcomError):
-    """配置加载或校验失败"""
+    """
+    配置加载或校验失败。
+
+    触发场景:
+    1. 缺少必要字段 (如 username/password)。
+    2. 字段格式错误 (如 IP 地址非法、Hex 字符串无法解析)。
+    3. 找不到配置文件或环境变量。
+    """
 
     pass
 
 
 class NetworkError(DrcomError):
     """
-    网络层面的错误。
-    如: Socket 创建失败、端口占用、发送/接收超时、DNS 解析失败。
+    网络层面的错误 (I/O 级别)。
+
+    触发场景:
+    1. Socket 创建失败或端口被占用。
+    2. 发送 (send) 或 接收 (recv) 超时。
+    3. DNS 解析失败。
+    4. 物理连接中断。
+
+    注意: 此类错误通常是暂时的，上层逻辑应尝试重试 (Retry)。
     """
 
     pass
@@ -33,37 +51,51 @@ class NetworkError(DrcomError):
 
 class ProtocolError(DrcomError):
     """
-    协议交互错误。
-    如: 收到非预期的包头、校验和不匹配、数据长度不足。
+    协议交互错误 (逻辑级别)。
+
+    触发场景:
+    1. 收到非 Dr.COM 协议的数据包 (Magic Number 不匹配)。
+    2. 校验和 (Checksum/CRC) 验证失败。
+    3. 数据包长度不足或结构损坏。
+    4. 收到非预期的响应代码 (如 Challenge 阶段收到 Logout 包)。
     """
 
     pass
 
 
 class StateError(DrcomError):
-    """状态机错误 (如未登录时尝试注销)"""
+    """
+    状态机错误 (FSM Violation)。
+
+    触发场景:
+    1. 在未登录状态下尝试注销。
+    2. 在未登录状态下尝试启动心跳。
+    3. 在已登录状态下重复调用登录。
+    """
 
     pass
 
 
 class AuthErrorCode(IntEnum):
     """
-    Dr.COM 认证失败错误代码 (来自 0x05 响应包)。
+    Dr.COM 认证失败错误代码枚举。
+
+    这些代码直接来自登录失败响应包 (0x05) 的第 5 字节 (Index 4)。
     """
 
     IN_USE_WIRED = 0x01  # 有人正在使用这个账号，且是有线的方式
-    SERVER_BUSY = 0x02  # 服务器繁忙
+    SERVER_BUSY = 0x02  # 服务器繁忙 (通常需要退避重试)
     WRONG_PASSWORD = 0x03  # 密码错误
     INSUFFICIENT_FUNDS = 0x04  # 余额不足或时长超限
     ACCOUNT_FROZEN = 0x05  # 账号被冻结/暂停使用
-    WRONG_IP = 0x07  # IP地址不匹配
-    WRONG_MAC = 0x0B  # MAC地址不匹配
-    TOO_MANY_IP = 0x14  # IP 数量过多
-    WRONG_VERSION = 0x15  # 客户端版本不正确 (需升级)
+    WRONG_IP = 0x07  # IP地址不匹配 (常见于双网卡环境选错网卡)
+    WRONG_MAC = 0x0B  # MAC地址不匹配 (常见于路由器克隆 MAC 失败)
+    TOO_MANY_IP = 0x14  # 在线 IP 数量过多 (超出一号多端限制)
+    WRONG_VERSION = 0x15  # 客户端版本不正确 (需升级协议版本)
     WRONG_IP_MAC_BIND = 0x16  # IP/MAC 绑定错误
     FORCE_DHCP = 0x17  # 禁止静态 IP，强制 DHCP
 
-    # 预留/未知错误码
+    # 预留/未知错误码 (用于占位，防止解析未知代码时 Crash)
     UNKNOWN_18 = 0x18
     UNKNOWN_19 = 0x19
     UNKNOWN_1A = 0x1A
@@ -72,7 +104,14 @@ class AuthErrorCode(IntEnum):
 
     @property
     def description(self) -> str:
-        """返回错误码对应的中文描述"""
+        """
+        获取错误码对应的人类可读中文描述。
+
+        该描述可直接用于 UI 弹窗或日志记录。
+
+        Returns:
+            str: 对应的中文错误提示。
+        """
         _DESC_MAP = {
             0x01: "账号已在别处登录 (有线)",
             0x02: "服务器繁忙，请稍后重试",
@@ -92,6 +131,9 @@ class AuthErrorCode(IntEnum):
 class AuthError(DrcomError):
     """
     认证被拒绝 (业务层面的失败)。
+
+    当登录请求被服务器明确拒绝 (收到 0x05 包) 时抛出。
+    这通常意味着不可恢复的配置错误 (如密码错)，需要用户干预。
     """
 
     def __init__(self, message: str, error_code: Optional[int] = None):
@@ -99,17 +141,20 @@ class AuthError(DrcomError):
         初始化认证错误。
 
         Args:
-            message: 错误描述信息。
-            error_code: 原始错误代码。会自动尝试转换为 AuthErrorCode 枚举。
+            message (str): 错误描述信息。
+            error_code (Optional[int], optional): 原始错误代码。
+                构造函数会自动尝试将其转换为 AuthErrorCode 枚举，
+                并使用标准化的中文描述覆盖 message。
         """
         self.error_code_enum: Optional[AuthErrorCode] = None
 
         if error_code is not None:
             try:
                 self.error_code_enum = AuthErrorCode(error_code)
-                # 如果有标准的错误描述，优先使用
+                # 如果有标准的错误描述，优先使用标准描述，保证 UI 显示一致性
                 message = f"{self.error_code_enum.description}"
             except ValueError:
+                # 如果是未知的错误码，保留原始 message 并记录
                 pass
 
         super().__init__(message)
