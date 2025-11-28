@@ -46,7 +46,11 @@ class Protocol520D(BaseProtocol):
     """
     Dr.COM 5.2.0(D) 版协议策略实现。
 
-    实现了标准 D 版的全套交互流程。
+    实现了标准 D 版的全套交互流程，包括：
+    1. 挑战 (Challenge) 获取 Salt。
+    2. 登录 (Login) 并处理多重加密与校验。
+    3. 双重守护 (KeepAlive 1 & 2) 维持在线。
+    4. 尽力而为的注销 (Logout)。
     """
 
     def __init__(
@@ -55,6 +59,14 @@ class Protocol520D(BaseProtocol):
         state: "DrcomState",
         net_client: "NetworkClient",
     ):
+        """
+        初始化 D 版策略。
+
+        Args:
+            config (DrcomConfig): 核心配置对象。
+            state (DrcomState): 会话状态容器。
+            net_client (NetworkClient): 网络通信客户端。
+        """
         super().__init__(config, state, net_client)
         self.logger.info(f"Dr.COM 5.2.0(D) 策略已加载 (User: {config.username})")
 
@@ -62,17 +74,27 @@ class Protocol520D(BaseProtocol):
         """
         [API] 执行登录流程。
 
-        流程: Challenge -> Login Packet -> Parse Response
+        流程: Challenge (0x01) -> Login Packet (0x03) -> Parse Response (0x04/0x05)
+
+        Returns:
+            bool: 登录成功返回 True，失败返回 False。
+
+        Raises:
+            AuthError: 明确的认证拒绝 (如密码错误、欠费)。
+            NetworkError: 网络层面的通信失败。
+            ProtocolError: 协议交互异常。
         """
         self.logger.info("开始 5.2.0(D) 登录流程...")
         self.state.status = CoreStatus.CONNECTING
 
         try:
             # 1. 获取 Salt (原子操作，无重试)
+            # 这一步失败通常意味着物理网络不通或不是 Dr.COM 环境
             if not self._challenge():
                 return False
 
             # 2. 执行登录
+            # 内部包含了针对 "Server Busy" 的有限重试逻辑
             if self._login():
                 self.state.status = CoreStatus.LOGGED_IN
                 self.logger.info("登录成功，状态已更新为 LOGGED_IN。")
@@ -91,9 +113,13 @@ class Protocol520D(BaseProtocol):
         """
         [API] 执行一次心跳循环。
 
-        包含:
-        1. KeepAlive1 (0xFF): 验证密码与 Session。
-        2. KeepAlive2 (0x07): 维护 Sequence Number 和 Tail。
+        D 版协议包含两套心跳机制，必须在一个周期内依次完成：
+        1. KeepAlive1 (0xFF): 验证密码与 Session，防止伪造。
+        2. KeepAlive2 (0x07): 维护 Sequence Number 和 Tail，防止重放。
+
+        Returns:
+            bool: 心跳成功返回 True。如果失败 (网络超时或校验错误)，
+                  返回 False，且不抛出异常，由上层 Core 触发重连流程。
         """
         self.state.status = CoreStatus.HEARTBEAT
         try:
@@ -114,6 +140,7 @@ class Protocol520D(BaseProtocol):
                 raise ProtocolError("KA1 响应无效 (非 0x07 开头)")
 
             # --- 2. KA2 (0x07 Sequence) ---
+            # 处理复杂的序列号与 Tail 更新逻辑
             self._manage_keep_alive2_sequence()
             return True
 
@@ -126,6 +153,7 @@ class Protocol520D(BaseProtocol):
         [API] 执行登出流程 (Fail Fast)。
 
         尝试获取新 Salt 发送注销包。如果网络不通，直接本地下线，不阻塞用户。
+        因为注销包也需要使用实时的 Salt 进行加密，旧 Salt 往往无效。
         """
         if not self.state.auth_info:
             self.logger.info("无会话信息，本地直接下线。")
@@ -173,7 +201,11 @@ class Protocol520D(BaseProtocol):
     # =========================================================================
 
     def _challenge(self) -> bool:
-        """执行 Challenge"""
+        """
+        执行 Challenge 握手 (0x01 -> 0x02)。
+
+        更新 state.salt。
+        """
         pkt = packets.build_challenge_request()
         self.net_client.send(pkt)
 
@@ -186,7 +218,18 @@ class Protocol520D(BaseProtocol):
         raise ProtocolError("Challenge 响应数据无效")
 
     def _login(self) -> bool:
-        """执行 Login (仅包含 Server Busy 业务重试)"""
+        """
+        执行 Login 握手 (0x03 -> 0x04/0x05)。
+
+        包含针对 "Server Busy" (0x02) 的业务级重试逻辑。
+
+        Returns:
+            bool: 成功返回 True。
+
+        Raises:
+            AuthError: 认证被拒绝。
+            NetworkError: 网络失败。
+        """
         # 从 config 组装参数
         pkt = packets.build_login_packet(
             username=self.config.username,
@@ -254,13 +297,28 @@ class Protocol520D(BaseProtocol):
 
     def _manage_keep_alive2_sequence(self) -> None:
         """
-        KA2 状态机交互逻辑。
+        KA2 (0x07) 状态机交互逻辑。
 
-        D 版的 0x07 心跳包有时序要求：
-        - 首次心跳 (Init): Step 1 -> Step 2 -> Step 3
-        - 后续心跳 (Loop): Loop 1 -> Loop 2
+        D 版的 0x07 心跳包有时序要求，必须严格按照以下顺序执行：
 
-        任何一步失败都会导致抛出异常，从而中断心跳线程。
+        1. 初始化阶段 (Init Sequence) - 仅在会话刚建立时执行一次:
+           - Step 1 (Packet Type 1): Client -> Server (Flag=First)
+             Response: 仅用于确认，无 Payload。
+           - Step 2 (Packet Type 1): Client -> Server (Flag=Normal)
+             Response: 包含 Tail (用于 Step 3)。
+           - Step 3 (Packet Type 3): Client -> Server (含 Host IP)
+             Response: 包含 Tail (用于 Loop 阶段)。
+
+        2. 循环保活阶段 (Loop Sequence) - 后续每次心跳执行:
+           - Step 1 (Packet Type 1): Client -> Server
+             Response: 包含 Tail。
+           - Step 2 (Packet Type 3): Client -> Server (含 Host IP)
+             Response: 包含 Tail。
+
+        注意：
+        - Serial Number (packet_number) 在每次发送后递增 (mod 256)。
+        - Tail (签名) 通常由上一次响应携带，并在下一次请求中回传。
+        - 任何一步网络超时或校验失败都会抛出异常，中断心跳线程。
         """
         state = self.state
         cfg = self.config
@@ -361,7 +419,7 @@ class Protocol520D(BaseProtocol):
             state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
 
     def _reset_state(self):
-        """重置会话状态"""
+        """重置会话状态 (Salt, AuthInfo, KA2 标志位)"""
         self.state.status = CoreStatus.OFFLINE
         self.state.salt = b""
         self.state.auth_info = b""
