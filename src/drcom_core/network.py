@@ -1,14 +1,14 @@
 # src/drcom_core/network.py
 """
-Dr.COM 核心库 - 网络模块 (Network)
+Dr.COM 核心库 - 网络模块 (Network) [Asyncio Edition]
 
 封装 UDP Socket 的创建、绑定、发送和接收逻辑。
 该模块屏蔽了底层 Socket 的复杂性，向策略层提供纯粹的 bytes 收发接口。
 """
 
+import asyncio
 import logging
-import socket
-from typing import Tuple
+from typing import Optional, Tuple, cast
 
 from .config import DrcomConfig
 from .exceptions import NetworkError
@@ -16,156 +16,124 @@ from .exceptions import NetworkError
 logger = logging.getLogger(__name__)
 
 
+class DrcomUdpProtocol(asyncio.DatagramProtocol):
+    """
+    asyncio UDP 协议适配器。
+    将回调风格的 data_received 转换为 Queue 模式，供上层 await 使用。
+    """
+
+    def __init__(self):
+        self.transport: Optional[asyncio.DatagramTransport] = None
+        # 队列存储 (data, addr) 元组
+        self.queue: asyncio.Queue[Tuple[bytes, Tuple[str, int]]] = asyncio.Queue()
+        self.error: Optional[Exception] = None
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        self.transport = cast(asyncio.DatagramTransport, transport)
+        logger.debug("UDP Transport 已建立")
+
+    def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
+        # 将收到的数据放入队列，非阻塞
+        self.queue.put_nowait((data, addr))
+
+    def error_received(self, exc: Exception) -> None:
+        logger.error(f"UDP 错误: {exc}")
+        self.error = exc
+        # 可以选择是否要在 queue 中放入错误信号，或者在 receive 时检查
+
+    def connection_lost(self, exc: Optional[Exception]) -> None:
+        if exc:
+            logger.warning(f"UDP 连接断开: {exc}")
+        self.transport = None
+
+
 class NetworkClient:
     """
-    封装 UDP 套接字操作的客户端。
-
-    负责维护一个长生命周期的 UDP Socket，处理 bind、sendto、recvfrom 等底层操作。
-    同时负责将 socket 异常转化为库内部的 NetworkError。
+    封装 asyncio UDP 操作的客户端。
     """
 
     def __init__(self, config: DrcomConfig):
-        """
-        初始化网络客户端并绑定端口。
-
-        Args:
-            config (DrcomConfig): 配置对象，提供 bind_ip 和 server_port。
-
-        Raises:
-            NetworkError: 如果端口绑定失败。
-        """
         self.config = config
-        self.sock: socket.socket | None = None
-        self._bind_socket()
+        self.protocol: Optional[DrcomUdpProtocol] = None
+        self.transport: Optional[asyncio.DatagramTransport] = None
 
-    def _bind_socket(self) -> None:
+    async def connect(self) -> None:
         """
-        [Internal] 创建并绑定 UDP Socket。
-
-        执行步骤:
-        1. 创建 AF_INET, SOCK_DGRAM 套接字。
-        2. 设置 SO_REUSEADDR 允许端口复用 (对快速重启至关重要)。
-        3. 绑定到指定的本地 IP 和端口 (通常是 61440)。
-        4. 设置为阻塞模式 (超时由后续操作控制)。
-
-        Raises:
-            NetworkError: 绑定失败时抛出。
+        初始化 UDP Endpoint。
+        替代原有的 _bind_socket。
         """
-        # Dr.COM 客户端通常需要绑定固定的源端口 (如 61440)
-        # 否则服务器可能拒绝响应
+        loop = asyncio.get_running_loop()
         bind_addr = (self.config.bind_ip, self.config.server_port)
 
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-            # 设置端口复用，避免程序崩溃重启后出现 "Address already in use" 错误
-            # 这在开发调试和系统服务自动重启时非常有用
-            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
-            self.sock.bind(bind_addr)
-
-            # 默认设为阻塞模式，具体的读写超时由 receive 方法中的 settimeout 控制
-            self.sock.setblocking(True)
-
-            logger.debug(f"Socket 绑定成功: {bind_addr}")
+            # reuse_port=True 在某些系统上能避免端口占用错误，但 Windows 支持有限
+            # 这里主要依靠 asyncio 自身的管理
+            transport, protocol = await loop.create_datagram_endpoint(
+                lambda: DrcomUdpProtocol(),
+                local_addr=bind_addr,
+                reuse_address=True,  # 对应 SO_REUSEADDR
+            )
+            self.transport = cast(asyncio.DatagramTransport, transport)
+            self.protocol = cast(DrcomUdpProtocol, protocol)
+            logger.debug(f"Async Socket 绑定成功: {bind_addr}")
 
         except Exception as e:
-            # [Enhanced] 捕获所有绑定阶段的错误 (包括 PermissionError, OSError)
-            # 如果绑定失败，确保释放资源
-            self.close()
+            await self.close()
             raise NetworkError(f"端口绑定失败 {bind_addr}: {e}") from e
 
-    def send(self, packet: bytes) -> None:
+    async def send(self, packet: bytes) -> None:
         """
-        发送 UDP 数据包到配置的目标服务器。
-
-        Args:
-            packet (bytes): 要发送的二进制数据。
-
-        Raises:
-            NetworkError: Socket 未初始化或发送失败 (如网络不可达)。
+        发送 UDP 数据包。
+        虽然 UDP 发送通常是非阻塞的，但为了接口统一和未来的扩展性，这里保持 async。
         """
-        if not self.sock:
-            raise NetworkError("Socket 未初始化")
+        if not self.transport or self.transport.is_closing():
+            # 尝试自动重连或报错
+            if not self.transport:
+                # 如果从未连接过，尝试连接
+                await self.connect()
+            else:
+                raise NetworkError("Transport 已关闭")
 
         target = (self.config.server_address, self.config.server_port)
         try:
-            self.sock.sendto(packet, target)
-        except OSError as e:
-            # [Enhanced] 捕获 Network is unreachable 等系统级 IO 错误
-            raise NetworkError(f"发送失败 (IO): {e}") from e
+            # sendto 是同步非阻塞的
+            self.transport.sendto(packet, target)
         except Exception as e:
-            raise NetworkError(f"发送失败 (Unknown): {e}") from e
+            raise NetworkError(f"发送失败: {e}") from e
 
-    def receive(self, timeout: float) -> Tuple[bytes, Tuple[str, int]]:
+    async def receive(self, timeout: float) -> Tuple[bytes, Tuple[str, int]]:
         """
-        接收 UDP 数据包。
+        接收 UDP 数据包 (Async)。
 
-        该方法是阻塞的，直到收到数据或超时。
-
-        Args:
-            timeout (float): 等待超时时间 (秒)。
-
-        Returns:
-            Tuple[bytes, Tuple[str, int]]:
-                - bytes: 接收到的数据内容。
-                - Tuple[str, int]: 发送方的地址信息 (IP, Port)。
-
-        Raises:
-            NetworkError: 接收超时或 Socket 错误。
+        使用 asyncio.wait_for 实现超时控制。
         """
-        if not self.sock:
-            raise NetworkError("Socket 未初始化")
+        if not self.protocol:
+            raise NetworkError("Protocol 未初始化")
 
         try:
-            # 动态设置当次接收的超时时间
-            self.sock.settimeout(timeout)
+            # 从队列中等待获取数据
+            return await asyncio.wait_for(self.protocol.queue.get(), timeout=timeout)
 
-            # 1024 字节 (1KB) 足够容纳最大的 Dr.COM 协议包 (通常 < 500B)
-            data, address = self.sock.recvfrom(1024)
-            return data, address
-
-        except socket.timeout:
-            # 超时是预期内的行为（例如发包后没收到回复），不需要 log error
-            # 抛出异常由上层策略层的重试逻辑处理
+        except asyncio.TimeoutError:
+            # 超时不需要 log error，交由上层处理
             raise NetworkError(f"接收超时 ({timeout}s)") from None
-
-        except OSError as e:
-            # 捕获 WinError 10054 (远程主机强迫关闭连接) 等
-            raise NetworkError(f"接收错误 (IO): {e}") from e
-
         except Exception as e:
-            raise NetworkError(f"接收错误 (Unknown): {e}") from e
+            raise NetworkError(f"接收错误: {e}") from e
 
-    def close(self) -> None:
-        """
-        显式关闭 Socket 资源。
+    async def close(self) -> None:
+        """关闭 Transport"""
+        if self.transport:
+            self.transport.close()
+            self.transport = None
+            logger.debug("UDP Transport 已关闭")
 
-        可以被多次安全调用。
-        """
-        if self.sock:
-            try:
-                self.sock.close()
-            except socket.error:
-                pass
-            finally:
-                self.sock = None
-                logger.debug("Socket 已关闭")
-
-    def __enter__(self):
-        """
-        支持上下文管理协议。
-        """
+    async def __aenter__(self):
+        await self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        支持上下文管理协议。
-        """
-        self.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
-    def __del__(self) -> None:
-        """
-        确保对象销毁时释放 Socket 资源。
-        """
-        self.close()
+    def __del__(self):
+        # 异步资源很难在 __del__ 中清理，主要依赖显式 close
+        pass

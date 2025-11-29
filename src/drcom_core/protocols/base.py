@@ -1,8 +1,8 @@
 # src/drcom_core/protocols/base.py
 """
-Dr.COM 协议基类 (Base Protocol)
+Dr.COM 协议基类 (Base Protocol) [Asyncio Edition]
 
-所有协议策略 (Strategy) 都必须继承此类，并实现 login/keep_alive/logout 接口。
+所有协议策略 (Strategy) 都必须继承此类，并实现 async login/keep_alive/logout 接口。
 """
 
 import abc
@@ -32,16 +32,16 @@ class BaseProtocol(abc.ABC):
         self.logger = logging.getLogger(self.__class__.__name__)
 
     @abc.abstractmethod
-    def login(self) -> bool:
-        """执行登录流程，成功返回 True"""
+    async def login(self) -> bool:
+        """[Async] 执行登录流程，成功返回 True"""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def keep_alive(self) -> bool:
-        """执行一次心跳循环，成功返回 True"""
+    async def keep_alive(self) -> bool:
+        """[Async] 执行一次心跳循环，成功返回 True"""
         raise NotImplementedError
 
     @abc.abstractmethod
-    def logout(self) -> None:
-        """执行登出流程"""
+    async def logout(self) -> None:
+        """[Async] 执行登出流程"""
         raise NotImplementedError
