@@ -68,7 +68,9 @@ def test_build_login_packet_structure():
     pkt = packets.build_login_packet(config, salt)
 
     assert pkt.startswith(constants.Code.LOGIN_REQ)
+    # 检查是否包含了一些特征数据 (如 os_info_bytes 的 \xff)
     assert b"\xff" * 20 in pkt
+    # 长度检查 (大概范围)
     assert len(pkt) > 300
 
 

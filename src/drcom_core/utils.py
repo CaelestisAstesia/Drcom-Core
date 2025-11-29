@@ -25,7 +25,9 @@ def checksum_d_series(data: bytes) -> bytes:
     Returns:
         bytes: 4 字节的小端序校验和。
     """
-    ret = 1234
+    CRC1968_INIT_VAL = 1234
+    CRC1968_MULTIPLIER = 1968
+    ret = CRC1968_INIT_VAL
     # 4字节对齐填充
     padded = data + b"\x00" * (-(len(data)) % 4)
 
@@ -35,7 +37,7 @@ def checksum_d_series(data: bytes) -> bytes:
         val = struct.unpack("<I", chunk)[0]
         ret ^= val
 
-    ret = (1968 * ret) & 0xFFFFFFFF
+    ret = (CRC1968_MULTIPLIER * ret) & 0xFFFFFFFF
     return struct.pack("<I", ret)
 
 
