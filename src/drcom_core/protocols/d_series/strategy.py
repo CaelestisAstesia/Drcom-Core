@@ -231,27 +231,7 @@ class Protocol520D(BaseProtocol):
             NetworkError: 网络失败。
         """
         # 从 config 组装参数
-        pkt = packets.build_login_packet(
-            username=self.config.username,
-            password=self.config.password,
-            salt=self.state.salt,
-            mac_address=self.config.mac_address,
-            host_ip_bytes=self.config.host_ip_bytes,
-            primary_dns_bytes=self.config.primary_dns_bytes,
-            dhcp_server_bytes=self.config.dhcp_address_bytes,  # 注意：Config字段名映射
-            secondary_dns_bytes=self.config.secondary_dns_bytes,
-            host_name=self.config.host_name,
-            host_os=self.config.host_os,
-            os_info_bytes=self.config.os_info_bytes,
-            adapter_num=self.config.adapter_num,
-            ipdog=self.config.ipdog,
-            auth_version=self.config.auth_version,
-            control_check_status=self.config.control_check_status,
-            padding_after_ipdog=self.config.padding_after_ipdog,
-            padding_after_dhcp=self.config.padding_after_dhcp,
-            padding_auth_ext=self.config.padding_auth_ext,
-            ror_enabled=self.config.ror_status,
-        )
+        pkt = packets.build_login_packet(self.config, self.state.salt)
 
         for i in range(MAX_RETRIES_SERVER_BUSY):
             self.net_client.send(pkt)
@@ -295,9 +275,48 @@ class Protocol520D(BaseProtocol):
 
         raise NetworkError("登录失败：服务器持续繁忙")
 
+    def _perform_ka2_step(self, packet_type: int, is_first: bool = False) -> None:
+        """
+        [Internal] 执行 KA2 序列中的单步交互：构建 -> 发送 -> 接收 -> 更新状态。
+
+        Args:
+            packet_type (int): 心跳包类型。
+            is_first (bool): 是否为首次包 (影响 Flag 设置)。
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+        # 1. 构建包
+        pkt = packets.build_keep_alive2_packet(
+            packet_number=self.state.keep_alive_serial_num,
+            tail=self.state.keep_alive_tail,
+            packet_type=packet_type,
+            host_ip_bytes=self.config.host_ip_bytes,
+            keep_alive_version=self.config.keep_alive_version,
+            is_first_packet=is_first,
+            keep_alive2_flag=self.config.keep_alive2_flag,
+        )
+
+        # 2. 发送与接收
+        self.net_client.send(pkt)
+        data, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
+
+        # 3. 提取并更新 Tail (如果有)
+        tail = packets.parse_keep_alive2_response(data)
+        if tail:
+            self.state.keep_alive_tail = tail
+
+        # 4. 序列号自增 (Mod 256)
+        self.state.keep_alive_serial_num = (self.state.keep_alive_serial_num + 1) % 256
+
     def _manage_keep_alive2_sequence(self) -> None:
         """
-        KA2 (0x07) 状态机交互逻辑。
+        [Refactor] KA2 (0x07) 状态机交互逻辑。
+        使用 _perform_ka2_step 消除重复代码。
+                KA2 (0x07) 状态机交互逻辑。
 
         D 版的 0x07 心跳包有时序要求，必须严格按照以下顺序执行：
 
@@ -320,103 +339,29 @@ class Protocol520D(BaseProtocol):
         - Tail (签名) 通常由上一次响应携带，并在下一次请求中回传。
         - 任何一步网络超时或校验失败都会抛出异常，中断心跳线程。
         """
-        state = self.state
-        cfg = self.config
-
-        def send_recv(pkt: bytes, desc: str) -> bytes:
-            """辅助函数：收发并记录日志"""
-            self.net_client.send(pkt)
-            data, _ = self.net_client.receive(TIMEOUT_KEEP_ALIVE)
-            # self.logger.debug(f"{desc} 响应: {data.hex()}")
-            return data
-
-        if not state._ka2_initialized:
+        if not self.state._ka2_initialized:
             # === 初始化阶段 (Init Sequence) ===
             self.logger.debug("执行 KA2 初始化序列...")
 
-            # Step 1: Type 1 Packet (Flag=First)
-            # 这一步服务器通常只回 ACK，没有 Tail
-            pkt1 = packets.build_keep_alive2_packet(
-                packet_number=state.keep_alive_serial_num,
-                tail=b"\x00" * 4,
-                packet_type=1,
-                host_ip_bytes=cfg.host_ip_bytes,
-                keep_alive_version=cfg.keep_alive_version,
-                is_first_packet=True,
-                keep_alive2_flag=cfg.keep_alive2_flag,
-            )
-            send_recv(pkt1, "KA2 Init Step 1")
-            state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
+            # Step 1: Type 1 (First)
+            self._perform_ka2_step(packet_type=1, is_first=True)
 
-            # Step 2: Type 1 Packet (Flag=Normal)
-            pkt2 = packets.build_keep_alive2_packet(
-                packet_number=state.keep_alive_serial_num,
-                tail=b"\x00" * 4,
-                packet_type=1,
-                host_ip_bytes=cfg.host_ip_bytes,
-                keep_alive_version=cfg.keep_alive_version,
-                is_first_packet=False,
-                keep_alive2_flag=cfg.keep_alive2_flag,
-            )
-            resp2 = send_recv(pkt2, "KA2 Init Step 2")
-            # 提取 Tail
-            tail = packets.parse_keep_alive2_response(resp2)
-            if tail:
-                state.keep_alive_tail = tail
-            state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
+            # Step 2: Type 1 (Normal)
+            self._perform_ka2_step(packet_type=1)
 
-            # Step 3: Type 3 Packet (Contains IP)
-            pkt3 = packets.build_keep_alive2_packet(
-                packet_number=state.keep_alive_serial_num,
-                tail=state.keep_alive_tail,
-                packet_type=3,
-                host_ip_bytes=cfg.host_ip_bytes,
-                keep_alive_version=cfg.keep_alive_version,
-                is_first_packet=False,
-                keep_alive2_flag=cfg.keep_alive2_flag,
-            )
-            resp3 = send_recv(pkt3, "KA2 Init Step 3")
-            tail = packets.parse_keep_alive2_response(resp3)
-            if tail:
-                state.keep_alive_tail = tail
-            state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
+            # Step 3: Type 3 (With IP)
+            self._perform_ka2_step(packet_type=3)
 
-            state._ka2_initialized = True
+            self.state._ka2_initialized = True
             self.logger.debug("KA2 初始化完成。")
 
         else:
             # === 循环保活阶段 (Loop Sequence) ===
-            # Loop 1: Type 1 Packet
-            pkt_l1 = packets.build_keep_alive2_packet(
-                packet_number=state.keep_alive_serial_num,
-                tail=state.keep_alive_tail,
-                packet_type=1,
-                host_ip_bytes=cfg.host_ip_bytes,
-                keep_alive_version=cfg.keep_alive_version,
-                is_first_packet=False,
-                keep_alive2_flag=cfg.keep_alive2_flag,
-            )
-            resp_l1 = send_recv(pkt_l1, "KA2 Loop 1")
-            tail = packets.parse_keep_alive2_response(resp_l1)
-            if tail:
-                state.keep_alive_tail = tail
-            state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
+            # Loop 1: Type 1
+            self._perform_ka2_step(packet_type=1)
 
-            # Loop 2: Type 3 Packet
-            pkt_l2 = packets.build_keep_alive2_packet(
-                packet_number=state.keep_alive_serial_num,
-                tail=state.keep_alive_tail,
-                packet_type=3,
-                host_ip_bytes=cfg.host_ip_bytes,
-                keep_alive_version=cfg.keep_alive_version,
-                is_first_packet=False,
-                keep_alive2_flag=cfg.keep_alive2_flag,
-            )
-            resp_l2 = send_recv(pkt_l2, "KA2 Loop 2")
-            tail = packets.parse_keep_alive2_response(resp_l2)
-            if tail:
-                state.keep_alive_tail = tail
-            state.keep_alive_serial_num = (state.keep_alive_serial_num + 1) % 256
+            # Loop 2: Type 3
+            self._perform_ka2_step(packet_type=3)
 
     def _reset_state(self):
         """重置会话状态 (Salt, AuthInfo, KA2 标志位)"""
