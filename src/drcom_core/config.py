@@ -1,11 +1,8 @@
-# src/drcom_core/config.py
 """
-Dr.COM 核心库 - 配置模块 (v1.0.0)
+Dr.COM 核心库 - 配置模块
 
-功能特性：
-1. 多源加载: 支持 TOML 文件 (带 Profile)、环境变量 (Docker)、内存字典。
-2. 强类型校验: 自动清洗 Hex/IP 格式，转换为 bytes/int。
-3. 协议适配: 支持动态配置协议填充位 (Padding) 和魔数，适配魔改版协议。
+负责配置的加载、解析与强类型转换。
+支持从 TOML 文件、环境变量或字典中加载配置，并自动适配协议差异。
 """
 
 import logging
@@ -23,113 +20,95 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DrcomConfig:
-    """
-    [Model] DrcomCore 的强类型配置对象。
+    """DrcomCore 的强类型配置对象。
 
-    该类定义了 drcom-core 运行所需的所有参数。
     所有字段均为只读 (frozen=True)，确保配置在运行时不可变。
+
+    Attributes:
+        username: 认证用户名。
+        password: 认证密码。
+        server_address: 认证服务器 IP 地址 (IPv4)。
+        server_port: 认证服务器端口 (通常为 61440)。
+        bind_ip: 本地绑定 IP (通常为 0.0.0.0)。
+        protocol_version: 协议版本标识 (如 'D', 'P')。
+        mac_address: 本机 MAC 地址 (整数形式)。
+        host_ip_bytes: 本机 IP 地址 (4 bytes)。
+        primary_dns_bytes: 主 DNS 地址 (4 bytes)。
+        secondary_dns_bytes: 次 DNS 地址 (4 bytes)。
+        dhcp_address_bytes: DHCP 服务器地址 (4 bytes)。
+        host_name: 主机名。
+        host_os: 操作系统名称。
+        os_info_bytes: 操作系统详细信息指纹。
+        adapter_num: 网卡数量/序号标志位。
+        ipdog: IPDog 监控开关位。
+        auth_version: 协议版本号。
+        control_check_status: 控制校验位。
+        keep_alive_version: 心跳版本号。
+        ror_status: 是否启用 ROR (循环右移) 加密算法。
+        padding_after_ipdog: IPDog 字段后的填充位。
+        padding_after_dhcp: DHCP 字段后的填充位。
+        padding_auth_ext: 扩展认证区前的填充位。
+        pppoe_flag: PPPoE 模式标志位 (P版专用)。
+        keep_alive2_flag: KeepAlive2 的特殊标志位 (P版专用)。
     """
 
-    # =========================================================================
-    # 1. 核心身份与连接 (Identity & Connection)
-    # =========================================================================
+    # --- 1. 核心身份与连接 ---
     username: str
-    """认证用户名"""
-
     password: str
-    """认证密码"""
-
     server_address: str
-    """认证服务器 IP 地址 (IPv4)"""
-
     server_port: int
-    """认证服务器端口 (通常为 61440)"""
-
     bind_ip: str
-    """本地绑定 IP (通常为 0.0.0.0 或本机特定网卡 IP)"""
-
-    # 协议版本: 'D', 'P' 等
     protocol_version: str
-    """协议版本标识 (如 'D' 代表 5.2.0(D) 版, 'P' 代表 PPPoE 版)"""
 
-    # =========================================================================
-    # 2. D 版专用参数 (D-Series Specifics)
-    # =========================================================================
-    # --- 网络指纹 ---
+    # --- 2. D 版专用参数 ---
+    # 网络指纹
     mac_address: int
-    """本机 MAC 地址 (整数形式，用于异或加密)"""
-
     host_ip_bytes: bytes
-    """本机 IP 地址 (4字节 bytes)"""
-
     primary_dns_bytes: bytes
-    """主 DNS 地址 (4字节 bytes)"""
-
-    secondary_dns_bytes: bytes  # [Merged]
-    """次 DNS 地址 (4字节 bytes)"""
-
+    secondary_dns_bytes: bytes
     dhcp_address_bytes: bytes
-    """DHCP 服务器地址 (4字节 bytes)"""
 
-    # --- 主机指纹 ---
+    # 主机指纹
     host_name: str
-    """主机名 (用于协议填充)"""
-
     host_os: str
-    """操作系统名称 (用于协议填充)"""
-
     os_info_bytes: bytes
-    """操作系统详细信息指纹 (Hex bytes)"""
 
-    # --- 协议参数 (Hex) ---
+    # 协议参数
     adapter_num: bytes
-    """网卡数量/序号标志位"""
-
     ipdog: bytes
-    """IPDog 监控开关位"""
-
     auth_version: bytes
-    """协议版本号 (如 \\x2c\\x00)"""
-
     control_check_status: bytes
-    """控制校验位"""
-
     keep_alive_version: bytes
-    """心跳版本号 (如 \\xdc\\x02)"""
-
     ror_status: bool
-    """是否启用 ROR (循环右移) 加密算法"""
 
-    # =========================================================================
-    # 3. 动态填充区 (Dynamic Padding) - [Merged from Protocol Analysis]
-    # =========================================================================
+    # --- 3. 动态填充区 ---
     padding_after_ipdog: bytes
-    """IPDog 字段后的填充位 (用于适配魔改协议)"""
-
     padding_after_dhcp: bytes
-    """DHCP 字段后的填充位"""
-
     padding_auth_ext: bytes
-    """扩展认证区前的填充位"""
 
-    # =========================================================================
-    # 4. P 版专用参数 (P-Series) - [Merged]
-    # =========================================================================
+    # --- 4. P 版专用参数 ---
     pppoe_flag: bytes
-    """PPPoE 模式标志位"""
-
     keep_alive2_flag: bytes
-    """KeepAlive2 的特殊标志位"""
+
+    def __repr__(self) -> str:
+        """隐藏密码字段的安全字符串表示。"""
+        return (
+            f"<{self.__class__.__name__} "
+            f"server={self.server_address}:{self.server_port}, "
+            f"username='{self.username}', "
+            f"password='******', "
+            f"bind_ip='{self.bind_ip}', "
+            f"protocol={self.protocol_version}>"
+        )
 
 
 def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
-    """
-    [Factory] 通用工厂：将字典转换为强类型配置对象。
+    """通用工厂：将字典转换为强类型配置对象。
 
-    负责字段的清洗、默认值注入和类型转换 (如 Hex 字符串转 bytes, IP 字符串转 bytes)。
+    负责字段的清洗、默认值注入和类型转换。
 
     Args:
-        raw_data (dict[str, Any]): 原始配置字典 (来自 TOML 或 Env)。
+        raw_data: 原始配置字典 (来自 TOML 或 Env)。
 
     Returns:
         DrcomConfig: 验证并转换后的配置对象。
@@ -158,10 +137,7 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
                 raise ConfigError(f"IP 格式无效 '{key}': {val}")
 
         def _to_bytes_hex(key: str, default: bytes | None = None) -> bytes:
-            """
-            增强型 Hex 解析：支持 0x 前缀、空格、自动补零。
-            例如: '0x12 34' -> b'\x12\x34'
-            """
+            """增强型 Hex 解析：支持 0x 前缀、空格、自动补零。"""
             if key not in raw_data:
                 if default is not None:
                     return default
@@ -181,10 +157,7 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
                 raise ConfigError(f"Hex 格式无效 '{key}': {val}")
 
         def _to_mac_int(key: str) -> int:
-            """
-            将 MAC 地址字符串转换为整数。
-            支持格式: AA:BB:CC..., AA-BB-CC..., AABBCC...
-            """
+            """将 MAC 地址字符串转换为整数。"""
             val = str(_req(key))
             try:
                 clean = val.replace(":", "").replace("-", "").replace(".", "")
@@ -207,7 +180,7 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
             mac_address=_to_mac_int("mac"),
             host_ip_bytes=_to_bytes_ip("host_ip"),
             primary_dns_bytes=_to_bytes_ip("primary_dns"),
-            secondary_dns_bytes=_to_bytes_ip("secondary_dns"),  # Default 0.0.0.0
+            secondary_dns_bytes=_to_bytes_ip("secondary_dns"),
             dhcp_address_bytes=_to_bytes_ip("dhcp_server"),
             # 指纹
             host_name=str(_get("host_name", "Drcom-Core")),
@@ -223,11 +196,11 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
             control_check_status=_to_bytes_hex("control_check_status", b"\x20"),
             keep_alive_version=_to_bytes_hex("keep_alive_version", b"\xdc\x02"),
             ror_status=bool(_get("ror_status", False)),
-            # 动态填充 (New)
+            # 动态填充
             padding_after_ipdog=_to_bytes_hex("padding_after_ipdog", b"\x00" * 4),
             padding_after_dhcp=_to_bytes_hex("padding_after_dhcp", b"\x00" * 8),
             padding_auth_ext=_to_bytes_hex("padding_auth_ext", b"\x00" * 2),
-            # P版参数 (New)
+            # P版参数
             pppoe_flag=_to_bytes_hex("pppoe_flag", b"\x2a"),
             keep_alive2_flag=_to_bytes_hex("keep_alive2_flag", b"\xdc"),
         )
@@ -239,8 +212,7 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
 
 
 def load_config_from_toml(file_path: Path, profile: str = "default") -> DrcomConfig:
-    """
-    [Loader] 从 TOML 文件加载配置。
+    """从 TOML 文件加载配置。
 
     支持多层级查找策略:
     1. [profile.xxx]: 优先查找指定的 profile 块。
@@ -248,8 +220,8 @@ def load_config_from_toml(file_path: Path, profile: str = "default") -> DrcomCon
     3. Root: 兼容根目录直接配置。
 
     Args:
-        file_path (Path): TOML 文件路径。
-        profile (str, optional): 配置预设名。默认为 "default"。
+        file_path: TOML 文件路径。
+        profile: 配置预设名。默认为 "default"。
 
     Returns:
         DrcomConfig: 配置对象。
@@ -274,8 +246,6 @@ def load_config_from_toml(file_path: Path, profile: str = "default") -> DrcomCon
             # 如果指定了非 default 的 profile 且没找到，报错
             if profile != "default":
                 raise ConfigError(f"未找到预设: [profile.{profile}]")
-            # 如果是 default 且没找到，尝试回退到 [drcom] 或 根目录，视逻辑而定
-            # 这里保持您的逻辑：严格检查
         else:
             raw_config = data["profile"][profile]
 
@@ -292,15 +262,10 @@ def load_config_from_toml(file_path: Path, profile: str = "default") -> DrcomCon
 
 
 def load_config_from_env() -> DrcomConfig:
-    """
-    [Loader] 从环境变量加载配置 (Docker/Cloud Friendly)。
+    """从环境变量加载配置 (Docker/Cloud Friendly)。
 
     自动读取所有以 `DRCOM_` 开头的环境变量，并映射到配置字段。
-
-    映射规则示例:
-    - DRCOM_USERNAME -> username
-    - DRCOM_SERVER_IP -> server_ip
-    - DRCOM_OS_INFO_HEX -> os_info_hex
+    例如: `DRCOM_USERNAME` -> `username`。
 
     Returns:
         DrcomConfig: 配置对象。

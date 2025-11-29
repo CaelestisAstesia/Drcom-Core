@@ -1,9 +1,8 @@
-# src/drcom_core/state.py
 """
-Dr.COM 核心库 - 状态模块 (State)
+Dr.COM 核心库 - 状态模块
 
 负责定义和存储所有易变的会话状态。
-本模块不包含业务逻辑，仅作为数据容器 (Data Class) 供 Core 和 Strategy 共享读写。
+本模块不包含业务逻辑，仅作为数据容器供 Core 和 Strategy 共享读写。
 """
 
 from dataclasses import dataclass
@@ -11,8 +10,7 @@ from enum import Enum, auto
 
 
 class CoreStatus(Enum):
-    """
-    核心引擎的生命周期状态枚举。
+    """核心引擎的生命周期状态枚举。
 
     状态流转示意:
     IDLE -> CONNECTING -> LOGGED_IN -> HEARTBEAT -> OFFLINE
@@ -42,71 +40,40 @@ class CoreStatus(Enum):
 
 @dataclass
 class DrcomState:
-    """
-    存储 Dr.COM 认证会话的易变状态数据。
+    """存储 Dr.COM 认证会话的易变状态数据。
 
-    该对象是非持久化的，每次重新登录 (Re-Login) 时，
+    该对象是非持久化的。每次重新登录 (Re-Login) 时，
     建议重置或重新实例化此对象，以避免旧的序列号污染新会话。
+
+    Attributes:
+        salt: Challenge 阶段从服务器获取的随机盐值 (4 Bytes)。
+        auth_info: 登录成功后服务器返回的鉴权令牌 (16 Bytes)。
+        status: 当前核心引擎的运行状态。
+        last_error: 最近一次发生的错误信息描述，用于 UI 显示。
+        keep_alive_serial_num: KA2 包的序列号 (0-255)，每次发送后自增。
+        keep_alive_tail: KA2 包的尾部签名，由上一次响应提取。
+        _ka2_initialized: [Internal] KA2 初始化握手是否完成的标志位。
     """
 
-    # =========================================================================
-    # 1. 基础会话凭据 (Session Credentials)
-    # =========================================================================
+    # --- 基础会话凭据 ---
     salt: bytes = b""
-    """
-    挑战 (Challenge) 阶段从服务器获取的随机盐值 (4 Bytes)。
-    用于后续登录包和心跳包的 MD5 加密。
-    """
-
     auth_info: bytes = b""
-    """
-    登录成功 (0x04) 后服务器返回的鉴权令牌 (16 Bytes)。
-    用于注销包和心跳包的身份验证。
-    """
 
-    # =========================================================================
-    # 2. 引擎状态 (Engine Status)
-    # =========================================================================
+    # --- 引擎状态 ---
     status: CoreStatus = CoreStatus.IDLE
-    """当前核心引擎的运行状态。"""
-
     last_error: str = ""
-    """
-    最近一次发生的错误信息描述。
-    用于在上层 UI 显示“离线原因”。
-    """
 
-    # =========================================================================
-    # 3. D 版协议专用状态机 (D-Series State Machine)
-    # =========================================================================
+    # --- D 版协议专用状态 ---
     keep_alive_serial_num: int = 0
-    """
-    KeepAlive2 (0x07) 包的序列号 (0-255)。
-    每次发送心跳包后自增并取模。
-    """
-
     keep_alive_tail: bytes = b"\x00" * 4
-    """
-    KeepAlive2 (0x07) 包的尾部签名 (Tail)。
-    由上一次心跳响应包的 [16:20] 字节提取，用于下一次请求。
-    """
-
     _ka2_initialized: bool = False
-    """
-    [Internal] 内部标志位：KA2 初始化握手是否完成。
-    D 版心跳分为 Init (3步) 和 Loop (2步) 两个阶段，此标志用于切换阶段。
-    """
 
     @property
     def is_online(self) -> bool:
-        """
-        判断当前是否处于“在线”状态。
+        """判断当前是否处于“在线”状态。
 
-        在线状态包括:
-        - LOGGED_IN: 刚登录成功，虽然还没发心跳，但在逻辑上已在线。
-        - HEARTBEAT: 心跳正常维持中。
-
-        该属性通常用于外部守护进程 (Daemon) 判断是否需要执行自动重连。
+        在线状态包括 LOGGED_IN (刚登录) 和 HEARTBEAT (保活中)。
+        该属性通常用于外部守护进程判断是否需要执行自动重连。
 
         Returns:
             bool: 如果在线返回 True。

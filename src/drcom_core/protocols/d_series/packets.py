@@ -1,4 +1,3 @@
-# src/drcom_core/protocols/d_series/packets.py
 """
 Dr.COM D系列协议封包构建器 (Packet Builders)
 
@@ -9,15 +8,9 @@ Dr.COM D系列协议封包构建器 (Packet Builders)
 import secrets
 import struct
 import time
-from typing import Optional
 
-# 引用通用算法库
 from ... import utils
-
-# 引用配置结构体(类型提示)
 from ...config import DrcomConfig
-
-# 引用本族常量
 from . import constants
 
 # =========================================================================
@@ -26,8 +19,13 @@ from . import constants
 
 
 def build_challenge_request(padding: bytes = b"\x00" * 15) -> bytes:
-    """
-    构建 Challenge 请求包 (0x01)。
+    """构建 Challenge 请求包 (0x01)。
+
+    Args:
+        padding: 填充字节，默认为 15 字节的 0x00。
+
+    Returns:
+        bytes: 构建好的 Challenge 请求包。
     """
     # 生成随机 Seed：使用当前时间戳 + 随机数，取模 0xFFFF
     rand_val = 0xF + secrets.randbelow(0xFF - 0xF + 1)
@@ -38,9 +36,14 @@ def build_challenge_request(padding: bytes = b"\x00" * 15) -> bytes:
     return constants.Code.CHALLENGE_REQ + seed + b"\x09" + padding
 
 
-def parse_challenge_response(data: bytes) -> Optional[bytes]:
-    """
-    解析 Challenge 响应包 (0x02)，提取 Salt。
+def parse_challenge_response(data: bytes) -> bytes | None:
+    """解析 Challenge 响应包 (0x02)，提取 Salt。
+
+    Args:
+        data: 接收到的 UDP 数据包。
+
+    Returns:
+        bytes | None: 如果包有效，返回 4 字节 Salt；否则返回 None。
     """
     # 1. 基础校验：非空且 Code 必须为 0x02
     if not data or not data.startswith(constants.Code.CHALLENGE_RESP):
@@ -60,10 +63,14 @@ def parse_challenge_response(data: bytes) -> Optional[bytes]:
 
 
 def build_login_packet(config: DrcomConfig, salt: bytes) -> bytes:
-    """
-    构建 5.2.0(D) 标准登录数据包 (Login Request)。
+    """构建 5.2.0(D) 标准登录数据包 (Login Request)。
 
-    [Refactor] 这里的签名已更改，接收 config 对象以避免参数爆炸。
+    Args:
+        config: 全局配置对象，包含用户名、密码、MAC等信息。
+        salt: Challenge 阶段获取的随机盐值。
+
+    Returns:
+        bytes: 构建好的登录请求包。
     """
     # 从 config 提取必要参数
     username = config.username
@@ -156,8 +163,16 @@ def build_login_packet(config: DrcomConfig, salt: bytes) -> bytes:
 
 
 def parse_login_response(data: bytes) -> tuple[bool, bytes | None, int | None]:
-    """
-    解析登录响应数据包 (0x04/0x05)。
+    """解析登录响应数据包 (0x04/0x05)。
+
+    Args:
+        data: 接收到的 UDP 数据包。
+
+    Returns:
+        tuple[bool, bytes | None, int | None]:
+            - success: 是否登录成功。
+            - auth_info: 成功时返回 16 字节 Auth Info，否则为 None。
+            - error_code: 失败时返回错误码 (int)，否则为 None。
     """
     if not data:
         return False, None, None
@@ -194,8 +209,16 @@ def build_keep_alive1_packet(
     auth_info: bytes,
     include_trailing_zeros: bool = True,
 ) -> bytes:
-    """
-    构建 Keep Alive 1 (0xFF) 数据包。
+    """构建 Keep Alive 1 (0xFF) 数据包。
+
+    Args:
+        salt: Challenge 阶段的 Salt。
+        password: 用户密码。
+        auth_info: 登录成功后获取的 Auth Info。
+        include_trailing_zeros: 是否包含尾部填充，默认为 True。
+
+    Returns:
+        bytes: 构建好的心跳包。
     """
     pwd_bytes = password.encode("gbk", "ignore")
 
@@ -220,8 +243,13 @@ def build_keep_alive1_packet(
 
 
 def parse_keep_alive1_response(data: bytes) -> bool:
-    """
-    验证 KA1 响应。
+    """验证 KA1 响应。
+
+    Args:
+        data: 接收到的 UDP 数据包。
+
+    Returns:
+        bool: 如果响应是以 0x07 开头（MISC/KA2），则视为成功。
     """
     return bool(data and data.startswith(constants.Code.MISC))
 
@@ -240,8 +268,19 @@ def build_keep_alive2_packet(
     is_first_packet: bool = False,
     keep_alive2_flag: bytes = b"\xdc",  # P版/变种 Flag
 ) -> bytes:
-    """
-    构建 Keep Alive 2 (0x07) 数据包。
+    """构建 Keep Alive 2 (0x07) 数据包。
+
+    Args:
+        packet_number: 当前心跳序列号 (0-255)。
+        tail: 上一次心跳响应返回的 Tail 签名。
+        packet_type: 包类型 (1 或 3)。
+        host_ip_bytes: 本机 IP 地址字节。
+        keep_alive_version: 心跳版本号。
+        is_first_packet: 是否为初始化阶段的首包。
+        keep_alive2_flag: P版或变种协议使用的标志位。
+
+    Returns:
+        bytes: 构建好的心跳包。
     """
     pkt = bytearray()
 
@@ -278,9 +317,14 @@ def build_keep_alive2_packet(
     return bytes(pkt)
 
 
-def parse_keep_alive2_response(data: bytes) -> Optional[bytes]:
-    """
-    解析 KA2 响应。
+def parse_keep_alive2_response(data: bytes) -> bytes | None:
+    """解析 KA2 响应。
+
+    Args:
+        data: 接收到的 UDP 数据包。
+
+    Returns:
+        bytes | None: 如果包有效，返回 4 字节 Tail 用于下次请求；否则返回 None。
     """
     if not data or not data.startswith(constants.Code.MISC):
         return None
@@ -304,8 +348,19 @@ def build_logout_packet(
     control_check_status: bytes,
     adapter_num: bytes,
 ) -> bytes:
-    """
-    构建注销 (0x06) 数据包。
+    """构建注销 (0x06) 数据包。
+
+    Args:
+        username: 用户名。
+        password: 密码。
+        salt: Challenge 阶段获取的 Salt (通常注销前需重新获取)。
+        mac: MAC 地址整数。
+        auth_info: 登录会话的鉴权信息。
+        control_check_status: 控制位。
+        adapter_num: 网卡数量/序号位。
+
+    Returns:
+        bytes: 构建好的注销请求包。
     """
     usr_bytes = username.encode("gbk", "ignore")
     pwd_bytes = password.encode("gbk", "ignore")
