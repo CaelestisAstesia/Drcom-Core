@@ -101,19 +101,6 @@ class DrcomConfig:
             f"protocol={self.protocol_version}>"
         )
 
-    def __repr__(self) -> str:
-        """
-        覆盖默认的 repr，隐藏密码字段，防止日志泄露敏感信息。
-        """
-        return (
-            f"<{self.__class__.__name__} "
-            f"server={self.server_address}:{self.server_port}, "
-            f"username='{self.username}', "
-            f"password='******', "
-            f"bind_ip='{self.bind_ip}', "
-            f"protocol={self.protocol_version}>"
-        )
-
 
 def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
     """通用工厂：将字典转换为强类型配置对象。
