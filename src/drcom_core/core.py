@@ -8,8 +8,10 @@ Dr.COM 核心引擎 (Core Engine)
 """
 
 import asyncio
+import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .config import DrcomConfig
 from .exceptions import AuthError, ConfigError, DrcomError, NetworkError
@@ -20,6 +22,9 @@ from .state import CoreStatus, DrcomState
 
 logger = logging.getLogger(__name__)
 
+# 定义回调函数类型别名：支持同步或异步函数
+StatusCallback = Callable[[CoreStatus, str], Any | Awaitable[Any]]
+
 
 class DrcomCore:
     """Dr.COM 认证核心引擎 (Async)。"""
@@ -27,13 +32,13 @@ class DrcomCore:
     def __init__(
         self,
         config: DrcomConfig,
-        status_callback: Callable[[CoreStatus, str], None] | None = None,
+        status_callback: StatusCallback | None = None,
     ) -> None:
         """初始化核心引擎。
 
         Args:
             config: 全局配置对象。
-            status_callback: 状态变更回调函数。
+            status_callback: 状态变更回调函数 (支持 async def)。
         """
         self.config = config
         self._callback = status_callback
@@ -66,7 +71,12 @@ class DrcomCore:
         外部调用必须使用 await core.login()。
 
         Returns:
-            bool: 登录成功返回 True，失败返回 False。
+            bool: 登录成功返回 True，失败返回 False (仅限未知逻辑错误)。
+
+        Raises:
+            AuthError: 认证被拒绝 (业务层面的失败)。
+            NetworkError: 网络通信异常 (IO层面的失败)。
+            DrcomError: 其他不可恢复的错误。
         """
         self._update_status(CoreStatus.CONNECTING, "正在登录...")
 
@@ -83,6 +93,7 @@ class DrcomCore:
                 self._update_status(CoreStatus.LOGGED_IN, "登录成功")
                 return True
             else:
+                # 协议层返回 False 通常意味着逻辑失败但未抛异常 (如 Challenge 无响应)
                 self._update_status(CoreStatus.OFFLINE, "登录失败 (未知原因)")
                 return False
 
@@ -92,9 +103,11 @@ class DrcomCore:
             raise
 
         except (NetworkError, DrcomError) as e:
+            # [Fix C-01] 不再吞没异常返回 False，而是记录状态后向上冒泡。
+            # 这允许上层调用者决定是重试 (NetworkError) 还是报错退出。
             self.state.last_error = str(e)
             self._update_status(CoreStatus.ERROR, f"登录异常: {e}")
-            return False
+            raise
 
     async def step(self) -> bool:
         """[Dual Mode API] 执行单次心跳步进。
@@ -193,10 +206,15 @@ class DrcomCore:
         logger.info(f"[{status.name}] {msg}")
 
         if self._callback:
-            # [Fix] 使用 call_soon 异步执行回调，防止阻塞核心逻辑
             try:
-                loop = asyncio.get_running_loop()
-                loop.call_soon(self._callback, status, msg)
+                # [Fix Callback] 智能识别回调类型
+                if inspect.iscoroutinefunction(self._callback):
+                    # 如果是 async def 定义的协程，创建 Task 执行
+                    asyncio.create_task(self._callback(status, msg))  # type: ignore
+                else:
+                    # 如果是同步函数，使用 call_soon 调度
+                    loop = asyncio.get_running_loop()
+                    loop.call_soon(self._callback, status, msg)
             except RuntimeError:
                 # 应对 loop 尚未运行或已关闭的边缘情况
                 pass
