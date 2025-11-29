@@ -8,7 +8,7 @@ Dr.COM 核心库 - 网络模块 (Network) [Asyncio Edition]
 
 import asyncio
 import logging
-from typing import Optional, Tuple, cast
+from typing import Optional, Tuple, Union, cast
 
 from .config import DrcomConfig
 from .exceptions import NetworkError
@@ -24,27 +24,53 @@ class DrcomUdpProtocol(asyncio.DatagramProtocol):
 
     def __init__(self):
         self.transport: Optional[asyncio.DatagramTransport] = None
-        # 队列存储 (data, addr) 元组
-        self.queue: asyncio.Queue[Tuple[bytes, Tuple[str, int]]] = asyncio.Queue()
-        self.error: Optional[Exception] = None
+        # [Fix A] 设置 maxsize=128，防止队列无限制增长导致 OOM
+        # 队列内容可以是数据元组，也可以是异常对象（用于快速失败）
+        self.queue: asyncio.Queue[Union[Tuple[bytes, Tuple[str, int]], Exception]] = (
+            asyncio.Queue(maxsize=128)
+        )
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = cast(asyncio.DatagramTransport, transport)
         logger.debug("UDP Transport 已建立")
 
     def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
-        # 将收到的数据放入队列，非阻塞
-        self.queue.put_nowait((data, addr))
+        """接收数据并放入队列"""
+        try:
+            self.queue.put_nowait((data, addr))
+        except asyncio.QueueFull:
+            # 如果队列满了，丢弃最旧的包以腾出空间（Ring Buffer 策略），或者直接丢弃新包
+            # 这里选择丢弃新包并记录警告，避免阻塞协议线程
+            logger.warning("UDP 接收队列已满，丢弃数据包")
 
     def error_received(self, exc: Exception) -> None:
+        """处理 UDP 错误"""
         logger.error(f"UDP 错误: {exc}")
-        self.error = exc
-        # 可以选择是否要在 queue 中放入错误信号，或者在 receive 时检查
+        self._propagate_error(exc)
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
+        """处理连接断开"""
         if exc:
             logger.warning(f"UDP 连接断开: {exc}")
+            self._propagate_error(exc)
+        else:
+            logger.debug("UDP 连接已正常关闭")
+            # 正常关闭时也可以发一个信号，视业务逻辑而定，这里发送一个特定异常以中断 receive
+            self._propagate_error(NetworkError("连接已关闭"))
         self.transport = None
+
+    def _propagate_error(self, exc: Exception) -> None:
+        """[Fix B] 辅助方法：将底层错误立即传播给上层消费者"""
+        try:
+            # 尝试放入队列，让 receive() 立即读到并抛出
+            self.queue.put_nowait(exc)
+        except asyncio.QueueFull:
+            # 如果队列满了，为了保证错误能被传达，我们可以强行移除一个元素
+            try:
+                self.queue.get_nowait()
+                self.queue.put_nowait(exc)
+            except Exception:
+                pass  # 极端情况忽略
 
 
 class NetworkClient:
@@ -60,18 +86,16 @@ class NetworkClient:
     async def connect(self) -> None:
         """
         初始化 UDP Endpoint。
-        替代原有的 _bind_socket。
         """
         loop = asyncio.get_running_loop()
         bind_addr = (self.config.bind_ip, self.config.server_port)
 
         try:
-            # reuse_port=True 在某些系统上能避免端口占用错误，但 Windows 支持有限
-            # 这里主要依靠 asyncio 自身的管理
+            # reuse_address=True 对应 SO_REUSEADDR
             transport, protocol = await loop.create_datagram_endpoint(
                 lambda: DrcomUdpProtocol(),
                 local_addr=bind_addr,
-                reuse_address=True,  # 对应 SO_REUSEADDR
+                reuse_address=True,
             )
             self.transport = cast(asyncio.DatagramTransport, transport)
             self.protocol = cast(DrcomUdpProtocol, protocol)
@@ -84,12 +108,9 @@ class NetworkClient:
     async def send(self, packet: bytes) -> None:
         """
         发送 UDP 数据包。
-        虽然 UDP 发送通常是非阻塞的，但为了接口统一和未来的扩展性，这里保持 async。
         """
         if not self.transport or self.transport.is_closing():
-            # 尝试自动重连或报错
             if not self.transport:
-                # 如果从未连接过，尝试连接
                 await self.connect()
             else:
                 raise NetworkError("Transport 已关闭")
@@ -97,7 +118,8 @@ class NetworkClient:
         target = (self.config.server_address, self.config.server_port)
         try:
             # sendto 是同步非阻塞的
-            self.transport.sendto(packet, target)
+            if self.transport:  # Double check for type checker
+                self.transport.sendto(packet, target)
         except Exception as e:
             raise NetworkError(f"发送失败: {e}") from e
 
@@ -112,11 +134,18 @@ class NetworkClient:
 
         try:
             # 从队列中等待获取数据
-            return await asyncio.wait_for(self.protocol.queue.get(), timeout=timeout)
+            item = await asyncio.wait_for(self.protocol.queue.get(), timeout=timeout)
+
+            # [Fix B] 检查取出来的是数据还是错误
+            if isinstance(item, Exception):
+                raise item
+
+            return item
 
         except asyncio.TimeoutError:
-            # 超时不需要 log error，交由上层处理
             raise NetworkError(f"接收超时 ({timeout}s)") from None
+        except NetworkError:
+            raise
         except Exception as e:
             raise NetworkError(f"接收错误: {e}") from e
 
@@ -135,5 +164,4 @@ class NetworkClient:
         await self.close()
 
     def __del__(self):
-        # 异步资源很难在 __del__ 中清理，主要依赖显式 close
         pass
