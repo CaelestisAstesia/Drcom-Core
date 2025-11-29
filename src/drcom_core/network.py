@@ -131,7 +131,7 @@ class NetworkClient:
             raise NetworkError(f"接收超时 ({timeout}s)") from None
 
         except OSError as e:
-            # [Enhanced] 捕获 WinError 10054 (远程主机强迫关闭连接) 等
+            # 捕获 WinError 10054 (远程主机强迫关闭连接) 等
             raise NetworkError(f"接收错误 (IO): {e}") from e
 
         except Exception as e:
@@ -152,6 +152,20 @@ class NetworkClient:
                 self.sock = None
                 logger.debug("Socket 已关闭")
 
+    def __enter__(self):
+        """
+        支持上下文管理协议。
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        支持上下文管理协议。
+        """
+        self.close()
+
     def __del__(self) -> None:
-        """析构函数：确保对象销毁时释放 Socket 资源"""
+        """
+        确保对象销毁时释放 Socket 资源。
+        """
         self.close()
