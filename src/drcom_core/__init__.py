@@ -26,7 +26,7 @@ from .exceptions import (
 )
 from .state import CoreStatus, DrcomState
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "DrcomCore",
