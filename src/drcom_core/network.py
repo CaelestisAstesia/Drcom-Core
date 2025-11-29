@@ -109,17 +109,21 @@ class NetworkClient:
         """
         发送 UDP 数据包。
         """
+        # 1. 确保连接可用
         if not self.transport or self.transport.is_closing():
             if not self.transport:
                 await self.connect()
             else:
                 raise NetworkError("Transport 已关闭")
 
+        # [Change] 显式断言：此时 transport 绝不可能是 None
+        # 这会让静态类型检查器闭嘴，且不需要后续多余的 if 判断
+        assert self.transport is not None
+
         target = (self.config.server_address, self.config.server_port)
         try:
-            # sendto 是同步非阻塞的
-            if self.transport:  # Double check for type checker
-                self.transport.sendto(packet, target)
+            # sendto 是同步非阻塞的，直接调用
+            self.transport.sendto(packet, target)
         except Exception as e:
             raise NetworkError(f"发送失败: {e}") from e
 

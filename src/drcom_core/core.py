@@ -1,17 +1,15 @@
-# src/drcom_core/core.py
 """
-Dr.COM 核心引擎 (Core Engine) - v1.0.0 [Asyncio Edition]
+Dr.COM 核心引擎 (Core Engine)
 
 职责：
 1. 资源组装：State + Network + Config。
 2. 策略分发。
-3. 生命周期：Login -> Async Task -> Stop。
+3. 生命周期：Login -> Heartbeat -> Stop。
 """
 
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Optional
 
 from .config import DrcomConfig
 from .exceptions import AuthError, ConfigError, DrcomError, NetworkError
@@ -24,15 +22,22 @@ logger = logging.getLogger(__name__)
 
 
 class DrcomCore:
-    """
-    Dr.COM 认证核心引擎 (Async Facade)。
-    """
+    """Dr.COM 认证核心引擎 (Async)。"""
 
     def __init__(
         self,
         config: DrcomConfig,
-        status_callback: Optional[Callable[[CoreStatus, str], None]] = None,
+        status_callback: Callable[[CoreStatus, str], None] | None = None,
     ) -> None:
+        """初始化核心引擎。
+
+        Args:
+            config: 全局配置对象。
+            status_callback: 状态变更回调函数 (必须是非阻塞的)。
+
+        Raises:
+            ConfigError: 组件初始化失败（如网络客户端创建失败）。
+        """
         self.config = config
         self._callback = status_callback
 
@@ -46,13 +51,13 @@ class DrcomCore:
         self.protocol: BaseProtocol
         self._load_strategy()
 
-        # [Changed] 移除 Threading，使用 asyncio 组件
         self._stop_event = asyncio.Event()
-        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: asyncio.Task | None = None
 
         self._update_status(CoreStatus.IDLE, "引擎已就绪")
 
     def _load_strategy(self) -> None:
+        """加载并实例化对应的协议策略。"""
         ver = self.config.protocol_version
         if ver == "D":
             self.protocol = Protocol520D(self.config, self.state, self.net_client)
@@ -60,9 +65,15 @@ class DrcomCore:
             raise ConfigError(f"不支持的协议版本: {ver}")
 
     async def login(self) -> bool:
-        """
-        [Async API] 执行登录流程。
+        """执行登录流程。
+
         外部调用必须使用 await core.login()。
+
+        Returns:
+            bool: 登录成功返回 True，失败返回 False。
+
+        Raises:
+            AuthError: 认证被服务器明确拒绝。
         """
         self._update_status(CoreStatus.CONNECTING, "正在登录...")
 
@@ -93,12 +104,11 @@ class DrcomCore:
             self._update_status(CoreStatus.ERROR, f"登录异常: {e}")
             return False
 
-    def start_heartbeat(self) -> None:
-        """
-        [Sync API -> Create Async Task] 启动后台心跳任务。
+    async def start_heartbeat(self) -> None:
+        """启动后台心跳任务。
 
-        注意：此方法本身不是 async 的，因为它只是负责“安排”任务。
-        前提是必须在运行中的 loop 里调用。
+        该方法会阻塞直到心跳 Loop 真正开始运行（进入 HEARTBEAT 状态），
+        确保调用返回时，后台任务已就绪。
         """
         if self._heartbeat_task and not self._heartbeat_task.done():
             return
@@ -108,15 +118,24 @@ class DrcomCore:
             return
 
         self._stop_event.clear()
-        # 创建 Task 托管心跳循环
+
+        # 创建一个 Event 用于同步启动状态
+        started_event = asyncio.Event()
+
+        # 将 Event 传递给 loop
         self._heartbeat_task = asyncio.create_task(
-            self._heartbeat_loop(), name="DrcomHeartbeatTask"
+            self._heartbeat_loop(started_event), name="DrcomHeartbeatTask"
         )
 
-    async def stop(self) -> None:
-        """
-        [Async API] 停止引擎。
+        # 等待 Loop 发出“我已启动”的信号
+        await started_event.wait()
 
+    async def stop(self) -> None:
+        """停止引擎。
+
+        1. 停止心跳任务。
+        2. 发送注销包。
+        3. 关闭网络连接。
         必须 await 以确保资源清理完成。
         """
         # 1. 触发停止信号
@@ -144,11 +163,12 @@ class DrcomCore:
 
         self._update_status(CoreStatus.OFFLINE, "已停止")
 
-    async def _heartbeat_loop(self) -> None:
-        """
-        [Async Internal] 心跳协程循环。
-        """
+    async def _heartbeat_loop(self, started_event: asyncio.Event | None = None) -> None:
+        """[Internal] 心跳协程循环。"""
         self._update_status(CoreStatus.HEARTBEAT, "心跳维持中")
+
+        if started_event:
+            started_event.set()
 
         try:
             while not self._stop_event.is_set():
@@ -161,7 +181,7 @@ class DrcomCore:
                     logger.error(f"心跳任务发生异常: {e}")
                     break
 
-                # [Critical] 使用 asyncio.sleep 等待，支持被 cancel 唤醒
+                # 使用 asyncio.sleep 等待，支持被 cancel 唤醒
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=20.0)
                 except asyncio.TimeoutError:
@@ -176,11 +196,11 @@ class DrcomCore:
             self._update_status(CoreStatus.OFFLINE, "心跳丢失，已掉线")
 
     def _update_status(self, status: CoreStatus, msg: str) -> None:
+        """更新内部状态并触发回调。"""
         self.state.status = status
         logger.info(f"[{status.name}] {msg}")
         if self._callback:
-            # 注意：如果回调里有阻塞操作，会卡死 Event Loop
-            # 建议回调只做简单的 print 或 variable update
+            # 回调应尽量轻量，避免阻塞 Loop
             try:
                 self._callback(status, msg)
             except Exception:

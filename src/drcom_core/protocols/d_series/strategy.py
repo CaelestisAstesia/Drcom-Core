@@ -1,4 +1,3 @@
-# src/drcom_core/protocols/d_series/strategy.py
 """
 Dr.COM D系列策略 (Strategy) - v1.0.0 [Asyncio Edition]
 
@@ -37,9 +36,7 @@ MAX_RETRIES_SERVER_BUSY = 3
 
 
 class Protocol520D(BaseProtocol):
-    """
-    Dr.COM 5.2.0(D) 版协议策略实现 (Async)。
-    """
+    """Dr.COM 5.2.0(D) 版协议策略实现 (Async)。"""
 
     def __init__(
         self,
@@ -47,12 +44,28 @@ class Protocol520D(BaseProtocol):
         state: "DrcomState",
         net_client: "NetworkClient",
     ):
+        """初始化协议策略。
+
+        Args:
+            config: 全局配置对象。
+            state: 共享状态对象。
+            net_client: 异步网络客户端。
+        """
         super().__init__(config, state, net_client)
         self.logger.info(f"Dr.COM 5.2.0(D) 策略已加载 (User: {config.username})")
 
     async def login(self) -> bool:
-        """
-        [Async API] 执行登录流程。
+        """执行登录流程。
+
+        包含 Challenge 握手和 Login 请求，并处理服务器繁忙重试逻辑。
+
+        Returns:
+            bool: 登录成功返回 True，失败返回 False。
+
+        Raises:
+            AuthError: 当服务器明确拒绝认证（如密码错误、欠费）时抛出。
+            NetworkError: 当网络层发生不可恢复错误时抛出。
+            ProtocolError: 当协议交互异常（如响应解析失败）时抛出。
         """
         self.logger.info("开始 5.2.0(D) 登录流程...")
         self.state.status = CoreStatus.CONNECTING
@@ -77,8 +90,12 @@ class Protocol520D(BaseProtocol):
             raise
 
     async def keep_alive(self) -> bool:
-        """
-        [Async API] 执行一次心跳循环。
+        """执行一次心跳循环。
+
+        包含 KA1 (0xFF) 和 KA2 (0x07) 序列的交互。
+
+        Returns:
+            bool: 心跳成功返回 True，失败（网络超时或协议错误）返回 False。
         """
         self.state.status = CoreStatus.HEARTBEAT
         try:
@@ -105,8 +122,9 @@ class Protocol520D(BaseProtocol):
             return False
 
     async def logout(self) -> None:
-        """
-        [Async API] 执行登出流程 (Fail Fast)。
+        """执行登出流程 (Fail Fast)。
+
+        尝试获取新 Salt 并发送注销包。如果网络超时，直接在本地清除会话状态。
         """
         if not self.state.auth_info:
             self.logger.info("无会话信息，本地直接下线。")
@@ -153,6 +171,15 @@ class Protocol520D(BaseProtocol):
     # =========================================================================
 
     async def _challenge(self) -> bool:
+        """执行 Challenge 握手以获取 Salt。
+
+        Returns:
+            bool: 成功获取 Salt 返回 True。
+
+        Raises:
+            ProtocolError: 响应数据无效。
+            NetworkError: 网络超时。
+        """
         pkt = packets.build_challenge_request()
         await self.net_client.send(pkt)
 
@@ -165,6 +192,15 @@ class Protocol520D(BaseProtocol):
         raise ProtocolError("Challenge 响应数据无效")
 
     async def _login(self) -> bool:
+        """执行核心登录逻辑，包含繁忙重试。
+
+        Returns:
+            bool: 登录成功返回 True。
+
+        Raises:
+            AuthError: 认证失败。
+            NetworkError: 网络通信失败。
+        """
         pkt = packets.build_login_packet(self.config, self.state.salt)
 
         for i in range(MAX_RETRIES_SERVER_BUSY):
@@ -174,6 +210,7 @@ class Protocol520D(BaseProtocol):
             except NetworkError:
                 raise
 
+            # 简单的源 IP 校验
             if ip != self.config.server_address:
                 continue
 
@@ -187,18 +224,26 @@ class Protocol520D(BaseProtocol):
                 self.logger.warning(
                     f"服务器繁忙 (0x02)，稍后重试... ({i + 1}/{MAX_RETRIES_SERVER_BUSY})"
                 )
-                # [Critical] 必须使用 asyncio.sleep 而不是 time.sleep
+                # 指数退避或随机抖动
                 await asyncio.sleep(random.uniform(1.0, 2.0))
                 continue
 
-            # 错误处理逻辑维持不变...
+            # 抛出具体的认证错误
             err_msg = f"认证失败 (Code: {hex(err_code) if err_code is not None else 'Unknown'})"
             raise AuthError(err_msg, err_code)
 
         raise NetworkError("登录失败：服务器持续繁忙")
 
     async def _perform_ka2_step(self, packet_type: int, is_first: bool = False) -> None:
-        """[Async Internal] KA2 单步交互"""
+        """执行 KA2 协议的单步交互。
+
+        Args:
+            packet_type: 包类型 (1 或 3)。
+            is_first: 是否为初始化序列的首包。
+
+        Raises:
+            NetworkError: 发送或接收失败。
+        """
         pkt = packets.build_keep_alive2_packet(
             packet_number=self.state.keep_alive_serial_num,
             tail=self.state.keep_alive_tail,
@@ -219,18 +264,24 @@ class Protocol520D(BaseProtocol):
         self.state.keep_alive_serial_num = (self.state.keep_alive_serial_num + 1) % 256
 
     async def _manage_keep_alive2_sequence(self) -> None:
-        """[Async Internal] KA2 状态机"""
+        """执行 KA2 状态机逻辑。
+
+        根据是否初始化 (_ka2_initialized) 决定执行 Init 序列 (1-1-3) 还是 Loop 序列 (1-3)。
+        """
         if not self.state._ka2_initialized:
             self.logger.debug("执行 KA2 初始化序列...")
+            # Init Sequence: Type 1(First) -> Type 1 -> Type 3
             await self._perform_ka2_step(packet_type=1, is_first=True)
             await self._perform_ka2_step(packet_type=1)
             await self._perform_ka2_step(packet_type=3)
             self.state._ka2_initialized = True
         else:
+            # Loop Sequence: Type 1 -> Type 3
             await self._perform_ka2_step(packet_type=1)
             await self._perform_ka2_step(packet_type=3)
 
-    def _reset_state(self):
+    def _reset_state(self) -> None:
+        """重置本地会话状态至离线。"""
         self.state.status = CoreStatus.OFFLINE
         self.state.salt = b""
         self.state.auth_info = b""

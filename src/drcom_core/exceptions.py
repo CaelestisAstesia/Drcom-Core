@@ -1,18 +1,14 @@
-# src/drcom_core/exceptions.py
 """
 Dr.COM 核心库 - 异常体系 (Exceptions)
 
 定义库内统一使用的异常类，以便上层应用（如 CLI/GUI）能进行精细的错误处理。
-参考资料: drcom-generic/analyses/error_no.md
 """
 
 from enum import IntEnum
-from typing import Optional
 
 
 class DrcomError(Exception):
-    """
-    Dr.COM 核心库的所有内部异常的基类。
+    """Dr.COM 核心库的所有内部异常的基类。
 
     上层应用可以通过捕获此异常来处理所有由 drcom-core 抛出的已知错误。
     """
@@ -21,8 +17,7 @@ class DrcomError(Exception):
 
 
 class ConfigError(DrcomError):
-    """
-    配置加载或校验失败。
+    """配置加载或校验失败。
 
     触发场景:
     1. 缺少必要字段 (如 username/password)。
@@ -34,8 +29,7 @@ class ConfigError(DrcomError):
 
 
 class NetworkError(DrcomError):
-    """
-    网络层面的错误 (I/O 级别)。
+    """网络层面的错误 (I/O 级别)。
 
     触发场景:
     1. Socket 创建失败或端口被占用。
@@ -50,8 +44,7 @@ class NetworkError(DrcomError):
 
 
 class ProtocolError(DrcomError):
-    """
-    协议交互错误 (逻辑级别)。
+    """协议交互错误 (逻辑级别)。
 
     触发场景:
     1. 收到非 Dr.COM 协议的数据包 (Magic Number 不匹配)。
@@ -64,8 +57,7 @@ class ProtocolError(DrcomError):
 
 
 class StateError(DrcomError):
-    """
-    状态机错误 (FSM Violation)。
+    """状态机错误 (FSM Violation)。
 
     触发场景:
     1. 在未登录状态下尝试注销。
@@ -77,8 +69,7 @@ class StateError(DrcomError):
 
 
 class AuthErrorCode(IntEnum):
-    """
-    Dr.COM 认证失败错误代码枚举。
+    """Dr.COM 认证失败错误代码枚举。
 
     这些代码直接来自登录失败响应包 (0x05) 的第 5 字节 (Index 4)。
     """
@@ -95,7 +86,7 @@ class AuthErrorCode(IntEnum):
     WRONG_IP_MAC_BIND = 0x16  # IP/MAC 绑定错误
     FORCE_DHCP = 0x17  # 禁止静态 IP，强制 DHCP
 
-    # 预留/未知错误码 (用于占位，防止解析未知代码时 Crash)
+    # 预留/未知错误码
     UNKNOWN_18 = 0x18
     UNKNOWN_19 = 0x19
     UNKNOWN_1A = 0x1A
@@ -104,10 +95,7 @@ class AuthErrorCode(IntEnum):
 
     @property
     def description(self) -> str:
-        """
-        获取错误码对应的人类可读中文描述。
-
-        该描述可直接用于 UI 弹窗或日志记录。
+        """获取错误码对应的人类可读中文描述。
 
         Returns:
             str: 对应的中文错误提示。
@@ -129,24 +117,21 @@ class AuthErrorCode(IntEnum):
 
 
 class AuthError(DrcomError):
-    """
-    认证被拒绝 (业务层面的失败)。
+    """认证被拒绝 (业务层面的失败)。
 
     当登录请求被服务器明确拒绝 (收到 0x05 包) 时抛出。
     这通常意味着不可恢复的配置错误 (如密码错)，需要用户干预。
     """
 
-    def __init__(self, message: str, error_code: Optional[int] = None):
-        """
-        初始化认证错误。
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        """初始化认证错误。
 
         Args:
-            message (str): 错误描述信息。
-            error_code (Optional[int], optional): 原始错误代码。
-                构造函数会自动尝试将其转换为 AuthErrorCode 枚举，
-                并使用标准化的中文描述覆盖 message。
+            message: 错误描述信息。
+            error_code: 原始错误代码。构造函数会自动尝试将其转换为
+                AuthErrorCode 枚举，并使用标准化的中文描述覆盖 message。
         """
-        self.error_code_enum: Optional[AuthErrorCode] = None
+        self.error_code_enum: AuthErrorCode | None = None
 
         if error_code is not None:
             try:
