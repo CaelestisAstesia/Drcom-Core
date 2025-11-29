@@ -121,6 +121,19 @@ class DrcomConfig:
     keep_alive2_flag: bytes
     """KeepAlive2 的特殊标志位"""
 
+    def __repr__(self) -> str:
+        """
+        覆盖默认的 repr，隐藏密码字段，防止日志泄露敏感信息。
+        """
+        return (
+            f"<{self.__class__.__name__} "
+            f"server={self.server_address}:{self.server_port}, "
+            f"username='{self.username}', "
+            f"password='******', "
+            f"bind_ip='{self.bind_ip}', "
+            f"protocol={self.protocol_version}>"
+        )
+
 
 def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
     """
