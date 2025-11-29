@@ -33,17 +33,13 @@ class DrcomCore:
 
         Args:
             config: 全局配置对象。
-            status_callback: 状态变更回调函数 (必须是非阻塞的)。
-
-        Raises:
-            ConfigError: 组件初始化失败（如网络客户端创建失败）。
+            status_callback: 状态变更回调函数。
         """
         self.config = config
         self._callback = status_callback
 
         try:
             self.state = DrcomState()
-            # NetworkClient 只是初始化，真正的连接在 connect 或 login 时建立
             self.net_client = NetworkClient(config)
         except Exception as e:
             raise ConfigError(f"组件初始化失败: {e}") from e
@@ -71,9 +67,6 @@ class DrcomCore:
 
         Returns:
             bool: 登录成功返回 True，失败返回 False。
-
-        Raises:
-            AuthError: 认证被服务器明确拒绝。
         """
         self._update_status(CoreStatus.CONNECTING, "正在登录...")
 
@@ -81,7 +74,6 @@ class DrcomCore:
             logger.warning("当前已在线，跳过登录")
             return True
 
-        # 确保网络连接已建立
         if not self.net_client.transport:
             await self.net_client.connect()
 
@@ -104,11 +96,33 @@ class DrcomCore:
             self._update_status(CoreStatus.ERROR, f"登录异常: {e}")
             return False
 
-    async def start_heartbeat(self) -> None:
-        """启动后台心跳任务。
+    async def step(self) -> bool:
+        """[Dual Mode API] 执行单次心跳步进。
 
-        该方法会阻塞直到心跳 Loop 真正开始运行（进入 HEARTBEAT 状态），
-        确保调用返回时，后台任务已就绪。
+        供外部 Event Loop (如 Daemon) 精细控制心跳时机。
+        如果处于非在线状态，调用此方法无效（返回 False）。
+
+        Returns:
+            bool: 心跳执行成功返回 True，失败或状态不正确返回 False。
+        """
+        if not self.state.is_online:
+            return False
+
+        try:
+            if await self.protocol.keep_alive():
+                return True
+            else:
+                logger.error("心跳检测失败 (Protocol return False)")
+                return False
+        except Exception as e:
+            logger.error(f"心跳步进异常: {e}")
+            return False
+
+    async def start_heartbeat(self) -> None:
+        """[Dual Mode API] 启动内置的后台心跳任务。
+
+        适用于简单脚本或不需要外部接管 Loop 的场景。
+        会阻塞直到心跳 Loop 真正开始运行。
         """
         if self._heartbeat_task and not self._heartbeat_task.done():
             return
@@ -118,30 +132,17 @@ class DrcomCore:
             return
 
         self._stop_event.clear()
-
-        # 创建一个 Event 用于同步启动状态
         started_event = asyncio.Event()
 
-        # 将 Event 传递给 loop
         self._heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(started_event), name="DrcomHeartbeatTask"
         )
-
-        # 等待 Loop 发出“我已启动”的信号
         await started_event.wait()
 
     async def stop(self) -> None:
-        """停止引擎。
-
-        1. 停止心跳任务。
-        2. 发送注销包。
-        3. 关闭网络连接。
-        必须 await 以确保资源清理完成。
-        """
-        # 1. 触发停止信号
+        """停止引擎。"""
         self._stop_event.set()
 
-        # 2. 取消并等待心跳任务
         if self._heartbeat_task and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
             try:
@@ -151,20 +152,17 @@ class DrcomCore:
             finally:
                 self._heartbeat_task = None
 
-        # 3. 尝试注销 (Await)
         if self.state.is_online:
             try:
                 await self.protocol.logout()
             except Exception as e:
                 logger.warning(f"注销过程异常: {e}")
 
-        # 4. 关闭网络资源 (Await)
         await self.net_client.close()
-
         self._update_status(CoreStatus.OFFLINE, "已停止")
 
     async def _heartbeat_loop(self, started_event: asyncio.Event | None = None) -> None:
-        """[Internal] 心跳协程循环。"""
+        """[Internal] 内置心跳循环。"""
         self._update_status(CoreStatus.HEARTBEAT, "心跳维持中")
 
         if started_event:
@@ -172,36 +170,33 @@ class DrcomCore:
 
         try:
             while not self._stop_event.is_set():
-                try:
-                    # 执行一次异步心跳
-                    if not await self.protocol.keep_alive():
-                        logger.error("心跳检测失败 (Protocol return False)")
-                        break
-                except Exception as e:
-                    logger.error(f"心跳任务发生异常: {e}")
+                # 复用 step() 逻辑
+                if not await self.step():
                     break
 
-                # 使用 asyncio.sleep 等待，支持被 cancel 唤醒
+                # 等待下一次心跳或停止信号
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=20.0)
                 except asyncio.TimeoutError:
-                    # 超时意味着没有收到停止信号，继续下一次心跳
                     continue
 
         except asyncio.CancelledError:
             logger.debug("心跳任务被取消")
-            raise  # 重新抛出以便 task 状态正确
+            raise
 
         if not self._stop_event.is_set():
             self._update_status(CoreStatus.OFFLINE, "心跳丢失，已掉线")
 
     def _update_status(self, status: CoreStatus, msg: str) -> None:
-        """更新内部状态并触发回调。"""
+        """更新内部状态并异步触发回调。"""
         self.state.status = status
         logger.info(f"[{status.name}] {msg}")
+
         if self._callback:
-            # 回调应尽量轻量，避免阻塞 Loop
+            # [Fix] 使用 call_soon 异步执行回调，防止阻塞核心逻辑
             try:
-                self._callback(status, msg)
-            except Exception:
+                loop = asyncio.get_running_loop()
+                loop.call_soon(self._callback, status, msg)
+            except RuntimeError:
+                # 应对 loop 尚未运行或已关闭的边缘情况
                 pass
