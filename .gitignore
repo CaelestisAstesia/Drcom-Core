@@ -193,3 +193,5 @@ config.toml
 
 # Legacy Source Code
 src_legacy/
+src_legacy_backup/
+tests_legacy_backup/
