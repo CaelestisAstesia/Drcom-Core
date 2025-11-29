@@ -35,9 +35,8 @@ class DrcomUdpProtocol(asyncio.DatagramProtocol):
         try:
             self.queue.put_nowait((data, addr))
         except asyncio.QueueFull:
-            # [Fix] 队列满时丢弃新包并计数，防止日志无限刷新影响性能
             self.dropped_packets += 1
-            if self.dropped_packets % 10 == 1:  # 每丢10个包打一条日志
+            if self.dropped_packets % 10 == 1:
                 logger.warning(
                     f"UDP 接收队列已满，已丢弃 {self.dropped_packets} 个数据包。"
                 )
@@ -62,7 +61,6 @@ class DrcomUdpProtocol(asyncio.DatagramProtocol):
         try:
             self.queue.put_nowait(exc)
         except asyncio.QueueFull:
-            # 强行移除旧数据以确保错误能被传达
             try:
                 self.queue.get_nowait()
                 self.queue.put_nowait(exc)
@@ -84,11 +82,9 @@ class NetworkClient:
         bind_addr = (self.config.bind_ip, self.config.server_port)
 
         try:
-            # reuse_address=True 对应 SO_REUSEADDR
             transport, protocol = await loop.create_datagram_endpoint(
                 lambda: DrcomUdpProtocol(),
                 local_addr=bind_addr,
-                reuse_address=True,
             )
             self.transport = cast(asyncio.DatagramTransport, transport)
             self.protocol = cast(DrcomUdpProtocol, protocol)
@@ -96,6 +92,8 @@ class NetworkClient:
 
         except Exception as e:
             await self.close()
+            # 这里的异常会被上层捕获，Prober 可能会将其误报为超时，
+            # 但在 Login 阶段会正确显示为 "端口绑定失败"。
             raise NetworkError(f"端口绑定失败 {bind_addr}: {e}") from e
 
     async def send(self, packet: bytes) -> None:
@@ -106,7 +104,6 @@ class NetworkClient:
             else:
                 raise NetworkError("Transport 已关闭")
 
-        # 显式断言 transport 不为空
         assert self.transport is not None
 
         target = (self.config.server_address, self.config.server_port)
@@ -116,17 +113,7 @@ class NetworkClient:
             raise NetworkError(f"发送失败: {e}") from e
 
     async def receive(self, timeout: float) -> tuple[bytes, tuple[str, int]]:
-        """接收 UDP 数据包 (Async)。
-
-        Args:
-            timeout: 超时时间 (秒)。
-
-        Returns:
-            tuple: (数据 bytes, (IP, Port))
-
-        Raises:
-            NetworkError: 超时或底层 Socket 错误。
-        """
+        """接收 UDP 数据包 (Async)。"""
         if not self.protocol:
             raise NetworkError("Protocol 未初始化")
 
