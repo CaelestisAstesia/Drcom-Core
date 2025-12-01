@@ -142,62 +142,74 @@ Drcom-Core 提供了精细的异常体系，建议在上层逻辑中分别处理
 
 ```mermaid
 classDiagram
+    %% --- 核心层 ---
+    note for DrcomCore "核心引擎 (Controller)\n负责组装组件与生命周期管理"
     class DrcomCore {
         +DrcomConfig config
         +DrcomState state
         +NetworkClient net_client
         +BaseProtocol protocol
-        +login()
-        +start_heartbeat()
+        +login() 登录
+        +start_heartbeat() 开启心跳
     }
 
+    %% --- 数据层 ---
+    note for DrcomConfig "配置对象 (Blueprint)\n只读、不可变"
     class DrcomConfig {
-        <<Immutable>>
+        <<Immutable/不可变>>
         +str username
         +str password
         +str server_ip
         +bytes mac_address
     }
 
+    note for DrcomState "状态容器 (Context)\n存储Salt、Token、序列号"
     class DrcomState {
-        <<Mutable>>
+        <<Mutable/易变>>
         +bytes salt
         +bytes auth_info
         +CoreStatus status
         +int keep_alive_serial
     }
 
+    %% --- 网络层 ---
+    note for NetworkClient "网络客户端 (I/O)\n封装UDP Socket与异步队列"
     class NetworkClient {
-        +send()
-        +receive()
+        +send() 发送
+        +receive() 接收
     }
 
+    %% --- 策略层 ---
     class BaseProtocol {
-        <<Interface>>
+        <<Interface/接口>>
         +login()
         +keep_alive()
         +logout()
     }
 
     class Protocol520D {
+        <<Implementation>>
         +login()
         +keep_alive()
     }
 
+    note for PacketBuilder "封包构建器 (Utils)\n纯函数，无状态"
     class PacketBuilder {
-        <<Stateless>>
+        <<Stateless/无状态>>
         +build_login_packet()
         +build_keep_alive()
     }
 
-    DrcomCore --> DrcomConfig : Read
-    DrcomCore --> DrcomState : Manage
-    DrcomCore --> NetworkClient : Init
-    DrcomCore --> BaseProtocol : Load
-    BaseProtocol <|-- Protocol520D
-    Protocol520D ..> PacketBuilder : Use
-    Protocol520D --> NetworkClient : I/O
-    Protocol520D --> DrcomState : Update
+    %% --- 关系定义 ---
+    DrcomCore --> DrcomConfig : 读取配置
+    DrcomCore --> DrcomState : 维护状态
+    DrcomCore --> NetworkClient : 初始化
+    DrcomCore --> BaseProtocol : 加载策略
+
+    BaseProtocol <|-- Protocol520D : 继承实现
+    Protocol520D ..> PacketBuilder : 调用构建
+    Protocol520D --> NetworkClient : 网络交互
+    Protocol520D --> DrcomState : 更新Session
 ```
 
 ## ❤️ 致谢 (Credits)
