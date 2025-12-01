@@ -211,3 +211,7 @@ classDiagram
 
 本项目采用 **AGPL v3** 许可证。
 
+```mermaid
+graph TD;
+    A-->B;
+```
