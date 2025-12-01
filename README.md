@@ -21,7 +21,7 @@
 
 Drcom-Core 通过将状态管理、网络传输与协议逻辑分离，实现了高度的模块化。
 
-```
+```mermaid
 graph TD
     User([用户/上层应用]) -->|1. 初始化配置| Config[DrcomConfig]
     User -->|2. 控制指令| Core[DrcomCore 引擎]
@@ -140,7 +140,7 @@ Drcom-Core 提供了精细的异常体系，建议在上层逻辑中分别处理
 
 了解 Dr.COM 的 D 版协议交互流程有助于排查问题：
 
-```
+```mermaid
 classDiagram
     class DrcomCore {
         +DrcomConfig config
