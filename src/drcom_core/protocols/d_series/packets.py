@@ -72,94 +72,101 @@ def build_login_packet(config: DrcomConfig, salt: bytes) -> bytes:
     Returns:
         bytes: 构建好的登录请求包。
     """
-    # 从 config 提取必要参数
-    username = config.username
-    password = config.password
-    mac_address = config.mac_address
+    try:
+        # 从 config 提取必要参数
+        username = config.username
+        password = config.password
+        mac_address = config.mac_address
 
-    # 编码转换
-    usr_bytes = username.encode("gbk", "ignore")
-    pwd_bytes = password.encode("gbk", "ignore")
-    hostname_bytes = config.host_name.encode("gbk", "ignore")
-    hostos_bytes = config.host_os.encode("gbk", "ignore")
-    mac_bytes = mac_address.to_bytes(6, byteorder="big")
+        # 编码转换
+        usr_bytes = username.encode("gbk", "strict")
+        pwd_bytes = password.encode("gbk", "strict")
+        hostname_bytes = config.host_name.encode("gbk", "ignore")
+        hostos_bytes = config.host_os.encode("gbk", "ignore")
+        mac_bytes = mac_address.to_bytes(6, byteorder="big")
 
-    pkt = bytearray()
+        pkt = bytearray()
 
-    # 1. Header (包头)
-    pkt_len = 20 + len(usr_bytes)
-    pkt.extend(constants.Code.LOGIN_REQ)
-    pkt.append(0x00)
-    pkt.append(pkt_len)
+        # 1. Header (包头)
+        pkt_len = 20 + len(usr_bytes)
+        pkt.extend(constants.Code.LOGIN_REQ)
+        pkt.append(0x00)
+        pkt.append(pkt_len)
 
-    # 2. MD5_A: 基础校验
-    md5a = utils.md5_bytes(constants.MD5_SALT_PREFIX + salt + pwd_bytes)
-    pkt.extend(md5a)
+        # 2. MD5_A: 基础校验
+        md5a = utils.md5_bytes(constants.MD5_SALT_PREFIX + salt + pwd_bytes)
+        pkt.extend(md5a)
 
-    # 3. Identity (身份信息)
-    pkt.extend(usr_bytes.ljust(constants.USERNAME_MAX_LEN, b"\x00"))
-    pkt.extend(config.control_check_status)
-    pkt.extend(config.adapter_num)
+        # 3. Identity (身份信息)
+        pkt.extend(usr_bytes.ljust(constants.USERNAME_MAX_LEN, b"\x00"))
+        pkt.extend(config.control_check_status)
+        pkt.extend(config.adapter_num)
 
-    # 4. MAC XOR (MAC 地址混淆)
-    xor_key = int.from_bytes(md5a[:6], byteorder="big")
-    mac_xor = mac_address ^ xor_key
-    pkt.extend(mac_xor.to_bytes(constants.LOGIN_MAC_XOR_LEN, byteorder="big"))
+        # 4. MAC XOR (MAC 地址混淆)
+        xor_key = int.from_bytes(md5a[:6], byteorder="big")
+        mac_xor = mac_address ^ xor_key
+        pkt.extend(mac_xor.to_bytes(constants.LOGIN_MAC_XOR_LEN, byteorder="big"))
 
-    # 5. MD5_B: 密码校验
-    md5b_data = (
-        constants.MD5B_SALT_PREFIX + pwd_bytes + salt + constants.MD5B_SALT_SUFFIX
-    )
-    pkt.extend(utils.md5_bytes(md5b_data))
+        # 5. MD5_B: 密码校验
+        md5b_data = (
+            constants.MD5B_SALT_PREFIX + pwd_bytes + salt + constants.MD5B_SALT_SUFFIX
+        )
+        pkt.extend(utils.md5_bytes(md5b_data))
 
-    # 6. IP List & MD5_C (IP 信息校验)
-    ip_section = bytearray()
-    ip_section.append(0x01)
-    ip_section.extend(config.host_ip_bytes)
-    ip_section.extend(b"\x00" * 12)
-    pkt.extend(ip_section)
+        # 6. IP List & MD5_C (IP 信息校验)
+        ip_section = bytearray()
+        ip_section.append(0x01)
+        ip_section.extend(config.host_ip_bytes)
+        ip_section.extend(b"\x00" * 12)
+        pkt.extend(ip_section)
 
-    md5c = utils.md5_bytes(ip_section + constants.MD5C_SUFFIX)[
-        : constants.LOGIN_MD5C_LEN
-    ]
-    pkt.extend(md5c)
+        md5c = utils.md5_bytes(ip_section + constants.MD5C_SUFFIX)[
+            : constants.LOGIN_MD5C_LEN
+        ]
+        pkt.extend(md5c)
 
-    # 7. IPDOG (客户端监控位)
-    pkt.extend(config.ipdog)
-    pkt.extend(config.padding_after_ipdog)
+        # 7. IPDOG (客户端监控位)
+        pkt.extend(config.ipdog)
+        pkt.extend(config.padding_after_ipdog)
 
-    # 8. Host Info (主机网络信息)
-    pkt.extend(hostname_bytes.ljust(constants.HOSTNAME_MAX_LEN, b"\x00"))
-    pkt.extend(config.primary_dns_bytes)
-    pkt.extend(config.dhcp_address_bytes)
-    pkt.extend(config.secondary_dns_bytes)
-    pkt.extend(config.padding_after_dhcp)
+        # 8. Host Info (主机网络信息)
+        pkt.extend(hostname_bytes.ljust(constants.HOSTNAME_MAX_LEN, b"\x00"))
+        pkt.extend(config.primary_dns_bytes)
+        pkt.extend(config.dhcp_address_bytes)
+        pkt.extend(config.secondary_dns_bytes)
+        pkt.extend(config.padding_after_dhcp)
 
-    # 9. OS Info (操作系统指纹)
-    pkt.extend(config.os_info_bytes)
-    pkt.extend(hostos_bytes.ljust(constants.HOST_OS_MAX_LEN, b"\x00"))
-    pkt.extend(b"\x00" * constants.HOST_OS_SUFFIX_LEN)
+        # 9. OS Info (操作系统指纹)
+        pkt.extend(config.os_info_bytes)
+        pkt.extend(hostos_bytes.ljust(constants.HOST_OS_MAX_LEN, b"\x00"))
+        pkt.extend(b"\x00" * constants.HOST_OS_SUFFIX_LEN)
 
-    # 10. Version (协议版本)
-    pkt.extend(config.auth_version)
+        # 10. Version (协议版本)
+        pkt.extend(config.auth_version)
 
-    # 11. Checksum (整包 CRC 校验)
-    checksum_input = pkt + constants.CHECKSUM_SUFFIX + mac_bytes
-    checksum_val = utils.checksum_d_series(checksum_input)
+        # 11. Checksum (整包 CRC 校验)
+        checksum_input = pkt + constants.CHECKSUM_SUFFIX + mac_bytes
+        checksum_val = utils.checksum_d_series(checksum_input)
 
-    # 12. Auth Ext (扩展认证区)
-    pkt.extend(constants.AUTH_EXT_CODE)
-    pkt.extend(constants.AUTH_EXT_LEN)
-    pkt.extend(checksum_val)
-    pkt.extend(constants.AUTH_EXT_OPTION)
-    pkt.extend(mac_bytes)
+        # 12. Auth Ext (扩展认证区)
+        pkt.extend(constants.AUTH_EXT_CODE)
+        pkt.extend(constants.AUTH_EXT_LEN)
+        pkt.extend(checksum_val)
+        pkt.extend(constants.AUTH_EXT_OPTION)
+        pkt.extend(mac_bytes)
 
-    # 13. Padding & Tail (尾部)
-    pkt.extend(config.padding_auth_ext)
-    # [Security] 使用 secrets 生成随机尾部
-    pkt.extend(secrets.token_bytes(2))
+        # 13. Padding & Tail (尾部)
+        pkt.extend(config.padding_auth_ext)
+        # [Security] 使用 secrets 生成随机尾部
+        pkt.extend(secrets.token_bytes(2))
 
-    return bytes(pkt)
+        return bytes(pkt)
+    except UnicodeEncodeError as e:
+        from ...exceptions import ConfigError
+
+        raise ConfigError(
+            f"参数包含 Dr.COM 不支持的字符 (非 GBK): {e.object[e.start : e.end]}"
+        ) from e
 
 
 def parse_login_response(data: bytes) -> tuple[bool, bytes | None, int | None]:
@@ -220,7 +227,7 @@ def build_keep_alive1_packet(
     Returns:
         bytes: 构建好的心跳包。
     """
-    pwd_bytes = password.encode("gbk", "ignore")
+    pwd_bytes = password.encode("gbk", "strict")
 
     # MD5(0x03 0x01 + Salt + Pwd)
     md5_hash = utils.md5_bytes(constants.MD5_SALT_PREFIX + salt + pwd_bytes)
@@ -362,8 +369,8 @@ def build_logout_packet(
     Returns:
         bytes: 构建好的注销请求包。
     """
-    usr_bytes = username.encode("gbk", "ignore")
-    pwd_bytes = password.encode("gbk", "ignore")
+    usr_bytes = username.encode("gbk", "strict")
+    pwd_bytes = password.encode("gbk", "strict")
 
     pkt = bytearray()
 
