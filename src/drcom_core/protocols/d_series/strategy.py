@@ -1,5 +1,5 @@
 """
-Dr.COM D系列策略 (Strategy) - v1.0.0 [Asyncio Edition]
+Dr.COM D系列策略 (Strategy) - v1.1.0
 
 职责：
 1. 流程编排：Challenge -> Login -> Heartbeat -> Logout。
@@ -24,10 +24,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# --- 超时设置 (Fail Fast) ---
-TIMEOUT_CHALLENGE = 3.0
-TIMEOUT_LOGIN = 5.0
-TIMEOUT_KEEP_ALIVE = 3.0
+# [Configurable] 主流程超时已移至 Config 对象中 (timeout_challenge, etc.)
+# 以下注销超时保留为常量，因为注销是"Best Effort"操作，无需用户微调
 TIMEOUT_LOGOUT_CHALLENGE = 1.0
 TIMEOUT_LOGOUT_RECV = 1.0
 
@@ -108,7 +106,9 @@ class Protocol520D(BaseProtocol):
             )
 
             await self.net_client.send(ka1_pkt)
-            data_ka1, _ = await self.net_client.receive(TIMEOUT_KEEP_ALIVE)
+
+            # [Dynamic Timeout] 使用配置值
+            data_ka1, _ = await self.net_client.receive(self.config.timeout_keep_alive)
 
             if not packets.parse_keep_alive1_response(data_ka1):
                 raise ProtocolError("KA1 响应无效 (非 0x07 开头)")
@@ -183,7 +183,8 @@ class Protocol520D(BaseProtocol):
         pkt = packets.build_challenge_request()
         await self.net_client.send(pkt)
 
-        data, _ = await self.net_client.receive(TIMEOUT_CHALLENGE)
+        # [Dynamic Timeout] 使用配置值
+        data, _ = await self.net_client.receive(self.config.timeout_challenge)
         salt = packets.parse_challenge_response(data)
 
         if salt:
@@ -206,7 +207,8 @@ class Protocol520D(BaseProtocol):
         for i in range(MAX_RETRIES_SERVER_BUSY):
             await self.net_client.send(pkt)
             try:
-                data, (ip, _) = await self.net_client.receive(TIMEOUT_LOGIN)
+                # [Dynamic Timeout] 使用配置值
+                data, (ip, _) = await self.net_client.receive(self.config.timeout_login)
             except NetworkError:
                 raise
 
@@ -255,7 +257,9 @@ class Protocol520D(BaseProtocol):
         )
 
         await self.net_client.send(pkt)
-        data, _ = await self.net_client.receive(TIMEOUT_KEEP_ALIVE)
+
+        # [Dynamic Timeout] 使用配置值
+        data, _ = await self.net_client.receive(self.config.timeout_keep_alive)
 
         tail = packets.parse_keep_alive2_response(data)
         if tail:
