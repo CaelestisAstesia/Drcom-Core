@@ -196,3 +196,6 @@ run.py
 src_legacy/
 src_legacy_backup/
 tests_legacy_backup/
+
+# DEV API DOCS FOR AI
+Drcom-Core_API_Docs.md
