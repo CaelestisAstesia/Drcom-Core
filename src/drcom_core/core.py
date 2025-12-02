@@ -11,6 +11,7 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 from .config import DrcomConfig
@@ -38,13 +39,17 @@ class DrcomCore:
 
         Args:
             config: 全局配置对象。
-            status_callback: 状态变更回调函数 (支持 async def)。
+            status_callback: [Legacy] 初始状态回调。建议使用 add_listener 代替。
         """
         self.config = config
-        self._callback = status_callback
+
+        # [NEW] 事件系统：支持多个监听器
+        self._listeners: list[StatusCallback] = []
+        if status_callback:
+            self.add_listener(status_callback)
 
         try:
-            self.state = DrcomState()
+            self._state = DrcomState()
             self.net_client = NetworkClient(config)
         except Exception as e:
             raise ConfigError(f"组件初始化失败: {e}") from e
@@ -57,11 +62,31 @@ class DrcomCore:
 
         self._update_status(CoreStatus.IDLE, "引擎已就绪")
 
+    @property
+    def state(self) -> DrcomState:
+        """获取当前会话状态的只读副本。
+
+        上层应用可由此获取 Auth Info、Salt 或当前错误详情。
+        返回的是一个副本 (Copy)，修改它不会影响引擎内部状态。
+        """
+        return replace(self._state)
+
+    def add_listener(self, callback: StatusCallback) -> None:
+        """[NEW] 注册状态变更监听器。"""
+        if callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def remove_listener(self, callback: StatusCallback) -> None:
+        """[NEW] 移除状态变更监听器。"""
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
     def _load_strategy(self) -> None:
         """加载并实例化对应的协议策略。"""
         ver = self.config.protocol_version
         if ver == "D":
-            self.protocol = Protocol520D(self.config, self.state, self.net_client)
+            # 注意：传入的是内部状态对象 self._state，以便策略层更新它
+            self.protocol = Protocol520D(self.config, self._state, self.net_client)
         else:
             raise ConfigError(f"不支持的协议版本: {ver}")
 
@@ -80,7 +105,7 @@ class DrcomCore:
         """
         self._update_status(CoreStatus.CONNECTING, "正在登录...")
 
-        if self.state.is_online:
+        if self._state.is_online:
             logger.warning("当前已在线，跳过登录")
             return True
 
@@ -98,14 +123,14 @@ class DrcomCore:
                 return False
 
         except AuthError as ae:
-            self.state.last_error = str(ae)
+            self._state.last_error = str(ae)
             self._update_status(CoreStatus.OFFLINE, f"认证被拒绝: {ae}")
             raise
 
         except (NetworkError, DrcomError) as e:
             # [Fix C-01] 不再吞没异常返回 False，而是记录状态后向上冒泡。
             # 这允许上层调用者决定是重试 (NetworkError) 还是报错退出。
-            self.state.last_error = str(e)
+            self._state.last_error = str(e)
             self._update_status(CoreStatus.ERROR, f"登录异常: {e}")
             raise
 
@@ -118,7 +143,7 @@ class DrcomCore:
         Returns:
             bool: 心跳执行成功返回 True，失败或状态不正确返回 False。
         """
-        if not self.state.is_online:
+        if not self._state.is_online:
             return False
 
         try:
@@ -140,7 +165,7 @@ class DrcomCore:
         if self._heartbeat_task and not self._heartbeat_task.done():
             return
 
-        if self.state.status != CoreStatus.LOGGED_IN:
+        if self._state.status != CoreStatus.LOGGED_IN:
             logger.error("无法启动心跳：未处于登录成功状态")
             return
 
@@ -165,7 +190,7 @@ class DrcomCore:
             finally:
                 self._heartbeat_task = None
 
-        if self.state.is_online:
+        if self._state.is_online:
             try:
                 await self.protocol.logout()
             except Exception as e:
@@ -201,20 +226,22 @@ class DrcomCore:
             self._update_status(CoreStatus.OFFLINE, "心跳丢失，已掉线")
 
     def _update_status(self, status: CoreStatus, msg: str) -> None:
-        """更新内部状态并异步触发回调。"""
-        self.state.status = status
+        """更新内部状态并异步触发所有回调。"""
+        self._state.status = status
         logger.info(f"[{status.name}] {msg}")
 
-        if self._callback:
+        for callback in self._listeners:
             try:
                 # [Fix Callback] 智能识别回调类型
-                if inspect.iscoroutinefunction(self._callback):
+                if inspect.iscoroutinefunction(callback):
                     # 如果是 async def 定义的协程，创建 Task 执行
-                    asyncio.create_task(self._callback(status, msg))  # type: ignore
+                    asyncio.create_task(callback(status, msg))  # type: ignore
                 else:
                     # 如果是同步函数，使用 call_soon 调度
                     loop = asyncio.get_running_loop()
-                    loop.call_soon(self._callback, status, msg)
+                    loop.call_soon(callback, status, msg)
             except RuntimeError:
                 # 应对 loop 尚未运行或已关闭的边缘情况
                 pass
+            except Exception as e:
+                logger.error(f"回调执行异常: {e}")
