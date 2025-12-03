@@ -69,3 +69,18 @@ class BaseProtocol(abc.ABC):
         清理服务器端会话和本地状态。
         """
         raise NotImplementedError
+
+    @abc.abstractmethod
+    async def probe(self, timeout: float = 2.0) -> bool:
+        """[Abstract] 探测服务器连通性。
+
+        发送简单的握手包（如 Challenge）确认服务器是否在线，
+        不应影响当前会话状态。
+
+        Args:
+            timeout: 超时时间 (秒)。
+
+        Returns:
+            bool: 如果收到有效响应返回 True。
+        """
+        raise NotImplementedError

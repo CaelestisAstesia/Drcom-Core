@@ -166,6 +166,29 @@ class Protocol520D(BaseProtocol):
             self._reset_state()
             self.logger.info("本地会话已清理。")
 
+    async def probe(self, timeout: float = 2.0) -> bool:
+        """探测服务器连通性 (D版实现)。
+
+        发送 Challenge 包 (0x01) 并等待响应 (0x02)。
+        此操作是无状态的，不更新 self.state。
+
+        Args:
+            timeout: 超时时间。
+
+        Returns:
+            bool: 成功收到 0x02 响应返回 True，超时或错误返回 False。
+        """
+        try:
+            pkt = packets.build_challenge_request()
+            await self.net_client.send(pkt)
+            data, _ = await self.net_client.receive(timeout)
+
+            # parse_challenge_response 返回 bytes (Salt) 或 None
+            return packets.parse_challenge_response(data) is not None
+        except Exception:
+            # 探测不仅捕获网络错误，也捕获所有异常以保证只返回 bool
+            return False
+
     # =========================================================================
     # 内部实现 (Async)
     # =========================================================================
