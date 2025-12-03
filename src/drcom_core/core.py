@@ -128,11 +128,30 @@ class DrcomCore:
             raise
 
         except (NetworkError, DrcomError) as e:
-            # [Fix C-01] 不再吞没异常返回 False，而是记录状态后向上冒泡。
+            # 不再吞没异常返回 False，而是记录状态后向上冒泡。
             # 这允许上层调用者决定是重试 (NetworkError) 还是报错退出。
             self._state.last_error = str(e)
             self._update_status(CoreStatus.ERROR, f"登录异常: {e}")
             raise
+
+    async def probe_server(self, timeout: float = 2.0) -> bool:
+        """
+        发送一个 Challenge 包并等待有效响应，用于探测服务器连通性。
+        不改变当前会话状态，不触发 Login 流程。
+
+        Args:
+            timeout: 等待响应的秒数。
+
+        Returns:
+            True: 收到合法的 Challenge Response (0x02)。
+            False: 超时或收到无效包。
+        """
+        # 确保网络层已初始化 (send 内部会自动 connect，但这里显式检查更安全)
+        if not self.net_client.transport:
+            # 如果仅仅是为了探测，send() 会自动建立连接
+            pass
+
+        return await self.protocol.probe(timeout)
 
     async def step(self) -> bool:
         """[Dual Mode API] 执行单次心跳步进。
