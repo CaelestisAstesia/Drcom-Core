@@ -9,7 +9,7 @@
 它采用了 **引擎 (Engine) + 策略 (Strategy)** 的解耦架构，旨在提供一个类型安全、零运行时依赖、易于扩展的底层认证框架。
 
 > 🚧 **注意**：本项目专注于协议的核心实现，不包含 GUI 界面。开发者可基于此库构建 CLI 工具、系统服务或 OpenWrt 脚本。
-> * 本项目的开发者以本项目为基础开发了一个使用TUI的Client（项目地址： https://github.com/CaelestisAstesia/Drcom-CLI） ，欢迎使用。
+> * 开发者配套了一个以本项目为基础的的Drcom认证客户端：[Drcom-Client](https://github.com/CaelestisAstesia/Drcom-CLI)，欢迎使用。
 
 ## ✨ 核心特性
 
@@ -246,7 +246,7 @@ classDiagram
 
 ## ❤️ 致谢
 
-  * 感谢 **drcom-generic** 社区的前辈们对协议做出的贡献。
+  * 感谢 **[drcom-generic](https://github.com/drcoms/drcom-generic)** 社区的前辈们对协议做出的贡献。
   * 感谢开源社区提供的 Python 现代化工具链支持。
 
 -----
@@ -261,8 +261,8 @@ classDiagram
 
 请您自行承担所有使用风险。您有责任在遵守当地法律法规和您所在机构的“网络管理规定”的前提下使用本软件。严禁将本软件用于任何非法或违规目的。
 
-本项目采用 GNU Affero General Public License v3.0 (AGPLv3) 许可证开源。
+本项目采用 **GNU Affero General Public License v3.0 (AGPLv3)** 许可证开源。
 
-简而言之：您可以自由地运行、研究、共享和修改本软件。但任何基于本项目的衍生作品（包括通过网络提供服务）都必须同样采用 AGPLv3 许可证开源。
+简而言之：您可以自由地运行、研究、共享和修改本软件。但**任何**基于本项目的衍生作品（包括通过网络提供服务）都**必须**同样采用 AGPLv3 许可证开源。
 
 详细文本请参见 LICENSE 文件。
