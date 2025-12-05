@@ -49,6 +49,29 @@ graph TD
 pip install -e .
 ```
 
+## 🖥️ 系统要求与依赖
+
+- 运行环境：`Python >= 3.13`，跨平台（Windows/Linux/macOS）。
+- 网络要求：可访问校园网认证服务器的 UDP 端口（默认 `61440`）。
+- 依赖项：本库为零第三方运行时依赖，仅使用标准库；打包与发布使用构建工具 `build`/`twine`（开发环境）。
+
+## 📚 API 概览
+
+- `drcom_core.DrcomCore`：核心引擎；提供 `login()`、`start_heartbeat()`、`step()`、`stop()` 等方法。
+- `drcom_core.config.DrcomConfig`：不可变配置对象；可通过 `load_config_from_toml(path, profile?)` 与 `create_config_from_env()` 构建。
+- `drcom_core.protocols`：协议接口与 D 版实现；正常使用由 `DrcomCore` 自动加载。
+- `drcom_core.exceptions`：`AuthError`、`NetworkError`、`ConfigError` 等异常类型。
+
+示例（事件循环集成）：详见 `Drcom-Core_API_Docs.md` 中的“Scenario 2”。
+
+## 🤝 贡献指南
+
+- 开发环境：建议 `Python 3.13`，安装基础工具 `pip install build twine`（用于本地打包验证）。
+- 代码规范：类型提示齐全，保持模块职责单一；避免输出敏感信息到日志。
+- 测试运行：在项目根目录执行 `pytest -q`，当前测试套件镜像 `src` 结构（`pyproject.toml` 中已配置 `python_files = ["*.py"]`）。
+- 提交与 PR：在提交前请确保本地测试通过，并附带必要的用例与说明。
+
+
 ### 2\. 最小化示例
 
 以下代码展示了如何加载配置、登录并启动后台心跳保活：
