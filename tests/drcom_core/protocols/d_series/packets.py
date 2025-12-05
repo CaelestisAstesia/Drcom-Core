@@ -1,14 +1,8 @@
-# tests/test_d_series_packets.py
-"""
-测试 D 系列协议封包构建器 (Packets)。
-[Fix] 适配了新的 build_login_packet 签名 (使用 Config 对象)。
-"""
-
+# Mirror tests for src/drcom_core/protocols/d_series/packets.py
 from drcom_core.config import DrcomConfig
 from drcom_core.protocols.d_series import constants, packets
 
 
-# ... Challenge tests 保持不变 ...
 def test_build_challenge_request():
     padding = b"\x00" * 15
     pkt = packets.build_challenge_request(padding)
@@ -23,13 +17,7 @@ def test_parse_challenge_response():
     assert packets.parse_challenge_response(b"\x03" + b"\x00" * 20) is None
 
 
-# =========================================================================
-# Login (0x03/0x04)
-# =========================================================================
-
-
 def _create_dummy_config() -> DrcomConfig:
-    """辅助函数：创建一个测试用的配置对象"""
     return DrcomConfig(
         username="test",
         password="123",
@@ -60,22 +48,16 @@ def _create_dummy_config() -> DrcomConfig:
 
 
 def test_build_login_packet_structure():
-    """测试登录包构建（使用 Config 对象）"""
     config = _create_dummy_config()
     salt = b"\x00" * 4
-
-    # [Fix] 新的调用方式
     pkt = packets.build_login_packet(config, salt)
 
     assert pkt.startswith(constants.Code.LOGIN_REQ)
-    # 检查是否包含了一些特征数据 (如 os_info_bytes 的 \xff)
     assert b"\xff" * 20 in pkt
-    # 长度检查 (大概范围)
     assert len(pkt) > 300
 
 
 def test_build_login_packet_randomness():
-    """测试登录包的尾部随机填充"""
     config = _create_dummy_config()
     salt = b"\x00" * 4
 
@@ -86,7 +68,6 @@ def test_build_login_packet_randomness():
     assert len(pkt1) == len(pkt2)
 
 
-# ... Parse Login / KA / Logout tests 保持不变 ...
 def test_parse_login_response():
     data_ok = (
         bytes([constants.Code.LOGIN_RESP_SUCC])
@@ -117,7 +98,5 @@ def test_parse_keep_alive2_tail():
 
 
 def test_logout_build():
-    pkt = packets.build_logout_packet(
-        "u", "p", b"salt", 0x0, b"token", b"\x20", b"\x01"
-    )
+    pkt = packets.build_logout_packet("u", "p", b"salt", 0x0, b"token", b"\x20", b"\x01")
     assert pkt.startswith(constants.Code.LOGOUT_REQ)

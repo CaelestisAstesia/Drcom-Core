@@ -1,3 +1,4 @@
+# File: src/drcom_core/protocols/d_series/packets.py
 """
 Dr.COM D系列协议封包构建器 (Packet Builders)
 
@@ -8,10 +9,13 @@ Dr.COM D系列协议封包构建器 (Packet Builders)
 import secrets
 import struct
 import time
+import logging
 
 from ... import utils
 from ...config import DrcomConfig
 from . import constants
+
+logger = logging.getLogger(__name__)
 
 # =========================================================================
 # Challenge (0x01)
@@ -54,7 +58,9 @@ def parse_challenge_response(data: bytes) -> bytes | None:
         return None
 
     # 3. 提取 Salt：位于偏移量 [4:8]
-    return data[constants.SALT_OFFSET_START : constants.SALT_OFFSET_END]
+    salt = data[constants.SALT_OFFSET_START : constants.SALT_OFFSET_END]
+    logger.debug("challenge_response: salt=%s", salt.hex())
+    return salt
 
 
 # =========================================================================
@@ -188,8 +194,9 @@ def parse_login_response(data: bytes) -> tuple[bool, bytes | None, int | None]:
     # Case 1: 登录成功 (0x04)
     if code == constants.Code.LOGIN_RESP_SUCC:
         if len(data) >= constants.AUTH_INFO_END:
-            # 提取 Auth Info，通常位于 [23:39]
-            return True, data[constants.AUTH_INFO_START : constants.AUTH_INFO_END], None
+            auth = data[constants.AUTH_INFO_START : constants.AUTH_INFO_END]
+            logger.debug("login_response: success auth_len=%d", len(auth))
+            return True, auth, None
 
     # Case 2: 登录失败 (0x05)
     elif code == constants.Code.LOGIN_RESP_FAIL:
@@ -199,9 +206,11 @@ def parse_login_response(data: bytes) -> tuple[bool, bytes | None, int | None]:
             if len(data) > constants.ERROR_CODE_INDEX
             else 0
         )
+        logger.debug("login_response: fail code=%d", err)
         return False, None, err
 
     # Case 3: 未知响应
+    logger.debug("login_response: unknown code=%d", code)
     return False, None, None
 
 
@@ -258,7 +267,9 @@ def parse_keep_alive1_response(data: bytes) -> bool:
     Returns:
         bool: 如果响应是以 0x07 开头（MISC/KA2），则视为成功。
     """
-    return bool(data and data.startswith(constants.Code.MISC))
+    ok = bool(data and data.startswith(constants.Code.MISC))
+    logger.debug("ka1_response: ok=%s", ok)
+    return ok
 
 
 # =========================================================================
@@ -273,7 +284,6 @@ def build_keep_alive2_packet(
     host_ip_bytes: bytes,
     keep_alive_version: bytes,
     is_first_packet: bool = False,
-    keep_alive2_flag: bytes = b"\xdc",  # P版/变种 Flag
 ) -> bytes:
     """构建 Keep Alive 2 (0x07) 数据包。
 
@@ -321,7 +331,16 @@ def build_keep_alive2_packet(
         # Type 1: Padding(00*16)
         pkt.extend(b"\x00" * 16)
 
-    return bytes(pkt)
+    out = bytes(pkt)
+    logger.debug(
+        "ka2_build: num=%d type=%d is_first=%s tail=%s len=%d",
+        packet_number,
+        packet_type,
+        is_first_packet,
+        tail.hex(),
+        len(out),
+    )
+    return out
 
 
 def parse_keep_alive2_response(data: bytes) -> bytes | None:
@@ -338,7 +357,9 @@ def parse_keep_alive2_response(data: bytes) -> bytes | None:
     if len(data) < 20:
         return None
     # Tail 位于 16:20
-    return data[16:20]
+    tail = data[16:20]
+    logger.debug("ka2_response: tail=%s", tail.hex())
+    return tail
 
 
 # =========================================================================

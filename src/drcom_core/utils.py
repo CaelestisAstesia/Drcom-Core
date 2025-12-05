@@ -1,3 +1,4 @@
+# File: src/drcom_core/utils.py
 """
 Dr.COM 核心库 - 通用算法工具箱
 

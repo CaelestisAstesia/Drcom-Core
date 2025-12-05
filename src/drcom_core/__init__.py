@@ -1,4 +1,4 @@
-# src/drcom_core/__init__.py
+# File: src/drcom_core/__init__.py
 """
 Drcom-Core v1.1.0
 现代化、高扩展的 Dr.COM 认证协议核心库。

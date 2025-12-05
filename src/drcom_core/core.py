@@ -1,3 +1,4 @@
+# File: src/drcom_core/core.py
 """
 Dr.COM 核心引擎 (Core Engine)
 

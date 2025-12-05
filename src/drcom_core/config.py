@@ -1,3 +1,4 @@
+# File: src/drcom_core/config.py
 """
 Dr.COM 核心库 - 配置模块
 
@@ -29,7 +30,7 @@ class DrcomConfig:
         password: 认证密码。
         server_address: 认证服务器 IP 地址 (IPv4)。
         server_port: 认证服务器端口 (通常为 61440)。
-        bind_ip: 本地绑定 IP (通常为 0.0.0.0)。
+        bind_ip: 本地 Socket 绑定 IP (通常为 0.0.0.0，监听所有)。
         protocol_version: 协议版本标识 (如 'D', 'P')。
         mac_address: 本机 MAC 地址 (整数形式)。
         host_ip_bytes: 本机 IP 地址 (4 bytes)。
