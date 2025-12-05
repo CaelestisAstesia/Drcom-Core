@@ -1,3 +1,4 @@
+# File: src/drcom_core/network.py
 """
 Dr.COM 核心库 - 网络模块 (Network)
 
@@ -109,6 +110,13 @@ class NetworkClient:
         target = (self.config.server_address, self.config.server_port)
         try:
             self.transport.sendto(packet, target)
+            logger.debug(
+                "udp_send: %dB to %s:%d code=%s",
+                len(packet),
+                target[0],
+                target[1],
+                packet[:2].hex(),
+            )
         except Exception as e:
             raise NetworkError(f"发送失败: {e}") from e
 
@@ -123,7 +131,9 @@ class NetworkClient:
             if isinstance(item, Exception):
                 raise item
 
-            return item
+            data, addr = item
+            logger.debug("udp_recv: %dB from %s:%d", len(data), addr[0], addr[1])
+            return data, addr
 
         except asyncio.TimeoutError:
             raise NetworkError(f"接收超时 ({timeout}s)") from None

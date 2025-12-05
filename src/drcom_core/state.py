@@ -1,3 +1,4 @@
+# File: src/drcom_core/state.py
 """
 Dr.COM 核心库 - 状态模块
 

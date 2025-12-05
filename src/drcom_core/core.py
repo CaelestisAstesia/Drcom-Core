@@ -1,3 +1,4 @@
+# File: src/drcom_core/core.py
 """
 Dr.COM 核心引擎 (Core Engine)
 
@@ -146,9 +147,7 @@ class DrcomCore:
             True: 收到合法的 Challenge Response (0x02)。
             False: 超时或收到无效包。
         """
-        # 确保网络层已初始化 (send 内部会自动 connect，但这里显式检查更安全)
         if not self.net_client.transport:
-            # 如果仅仅是为了探测，send() 会自动建立连接
             pass
 
         return await self.protocol.probe(timeout)

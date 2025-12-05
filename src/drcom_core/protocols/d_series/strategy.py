@@ -1,3 +1,4 @@
+# File: src/drcom_core/protocols/d_series/strategy.py
 """
 Dr.COM D系列策略 (Strategy) - v1.1.0
 
@@ -212,6 +213,7 @@ class Protocol520D(BaseProtocol):
 
         if salt:
             self.state.salt = salt
+            self.logger.debug("challenge_ok: salt=%s", salt.hex())
             return True
         raise ProtocolError("Challenge 响应数据无效")
 
@@ -237,12 +239,14 @@ class Protocol520D(BaseProtocol):
 
             # 简单的源 IP 校验
             if ip != self.config.server_address:
+                self.logger.debug("ignore_response_from=%s", ip)
                 continue
 
             success, auth_info, err_code = packets.parse_login_response(data)
 
             if success and auth_info:
                 self.state.auth_info = auth_info
+                self.logger.debug("login_ok: auth_len=%d", len(auth_info))
                 return True
 
             if err_code == AuthErrorCode.SERVER_BUSY:
@@ -269,6 +273,7 @@ class Protocol520D(BaseProtocol):
         Raises:
             NetworkError: 发送或接收失败。
         """
+        prev_tail = self.state.keep_alive_tail
         pkt = packets.build_keep_alive2_packet(
             packet_number=self.state.keep_alive_serial_num,
             tail=self.state.keep_alive_tail,
@@ -276,7 +281,6 @@ class Protocol520D(BaseProtocol):
             host_ip_bytes=self.config.host_ip_bytes,
             keep_alive_version=self.config.keep_alive_version,
             is_first_packet=is_first,
-            keep_alive2_flag=self.config.keep_alive2_flag,
         )
 
         await self.net_client.send(pkt)
@@ -287,8 +291,16 @@ class Protocol520D(BaseProtocol):
         tail = packets.parse_keep_alive2_response(data)
         if tail:
             self.state.keep_alive_tail = tail
+            self.logger.debug(
+                "ka2_step: type=%d num=%d tail_old=%s tail_new=%s",
+                packet_type,
+                self.state.keep_alive_serial_num,
+                prev_tail.hex(),
+                tail.hex(),
+            )
 
         self.state.keep_alive_serial_num = (self.state.keep_alive_serial_num + 1) % 256
+        self.logger.debug("ka2_next_num=%d", self.state.keep_alive_serial_num)
 
     async def _manage_keep_alive2_sequence(self) -> None:
         """执行 KA2 状态机逻辑。

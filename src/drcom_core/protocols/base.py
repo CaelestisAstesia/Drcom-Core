@@ -1,3 +1,4 @@
+# File: src/drcom_core/protocols/base.py
 """
 Dr.COM 协议基类 (Base Protocol)
 

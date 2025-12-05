@@ -1,3 +1,4 @@
+# File: src/drcom_core/config.py
 """
 Dr.COM 核心库 - 配置模块
 
@@ -23,6 +24,33 @@ class DrcomConfig:
     """DrcomCore 的强类型配置对象。
 
     所有字段均为只读 (frozen=True)，确保配置在运行时不可变。
+
+    Attributes:
+        username: 认证用户名。
+        password: 认证密码。
+        server_address: 认证服务器 IP 地址 (IPv4)。
+        server_port: 认证服务器端口 (通常为 61440)。
+        bind_ip: 本地 Socket 绑定 IP (通常为 0.0.0.0，监听所有)。
+        protocol_version: 协议版本标识 (如 'D', 'P')。
+        mac_address: 本机 MAC 地址 (整数形式)。
+        host_ip_bytes: 本机 IP 地址 (4 bytes)。
+        primary_dns_bytes: 主 DNS 地址 (4 bytes)。
+        secondary_dns_bytes: 次 DNS 地址 (4 bytes)。
+        dhcp_address_bytes: DHCP 服务器地址 (4 bytes)。
+        host_name: 主机名。
+        host_os: 操作系统名称。
+        os_info_bytes: 操作系统详细信息指纹。
+        adapter_num: 网卡数量/序号标志位。
+        ipdog: IPDog 监控开关位。
+        auth_version: 协议版本号。
+        control_check_status: 控制校验位。
+        keep_alive_version: 心跳版本号。
+        ror_status: 是否启用 ROR (循环右移) 加密算法。
+        padding_after_ipdog: IPDog 字段后的填充位。
+        padding_after_dhcp: DHCP 字段后的填充位。
+        padding_auth_ext: 扩展认证区前的填充位。
+        pppoe_flag: PPPoE 模式标志位 (P版专用)。
+        keep_alive2_flag: KeepAlive2 的特殊标志位 (P版专用)。
     """
 
     # --- 1. 核心身份与连接 ---
