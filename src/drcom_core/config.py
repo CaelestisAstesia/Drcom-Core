@@ -61,6 +61,11 @@ class DrcomConfig:
     bind_ip: str
     protocol_version: str
 
+    # --- [NEW] 网络超时配置 (单位: 秒) ---
+    timeout_challenge: float
+    timeout_login: float
+    timeout_keep_alive: float
+
     # --- 2. D 版专用参数 ---
     # 网络指纹
     mac_address: int
@@ -99,7 +104,8 @@ class DrcomConfig:
             f"username='{self.username}', "
             f"password='******', "
             f"bind_ip='{self.bind_ip}', "
-            f"protocol={self.protocol_version}>"
+            f"protocol={self.protocol_version}, "
+            f"timeouts=(C={self.timeout_challenge}, L={self.timeout_login}, K={self.timeout_keep_alive})>"
         )
 
 
@@ -177,6 +183,10 @@ def create_config_from_dict(raw_data: dict[str, Any]) -> DrcomConfig:
             server_port=int(_get("drcom_port", 61440)),
             bind_ip=str(_get("bind_ip", "0.0.0.0")),
             protocol_version=str(_get("protocol_version", "D")).upper(),
+            # [NEW] 超时配置 (注入默认值)
+            timeout_challenge=float(_get("timeout_challenge", 3.0)),
+            timeout_login=float(_get("timeout_login", 5.0)),
+            timeout_keep_alive=float(_get("timeout_keep_alive", 3.0)),
             # D版网络
             mac_address=_to_mac_int("mac"),
             host_ip_bytes=_to_bytes_ip("host_ip"),
@@ -283,6 +293,10 @@ def load_config_from_env() -> DrcomConfig:
         "drcom_port": "PORT",
         "bind_ip": "BIND_IP",
         "protocol_version": "PROTOCOL_VERSION",
+        # 超时配置 (可选，若不配置则走 factory 默认值)
+        "timeout_challenge": "TIMEOUT_CHALLENGE",
+        "timeout_login": "TIMEOUT_LOGIN",
+        "timeout_keep_alive": "TIMEOUT_KEEP_ALIVE",
         # D版
         "mac": "MAC",
         "host_ip": "HOST_IP",
