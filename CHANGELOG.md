@@ -1,26 +1,63 @@
-# Changelog
+Version 1.1.0
 
-All notable changes to this project will be documented in this file.
+### ⚠️ 重大变更 (Breaking Changes)
 
-## [1.1.0] - 2025-12-05
+本次更新涉及底层架构的彻底重构，**不向下兼容**。
 
-- 增强 `DEBUG` 级日志：`network` 收发、D 系列 `packets` 构包/解析、`strategy` 登录与 KA2 状态机。
-- 测试套件扩展并镜像 `src` 结构：`tests/drcom_core/protocols/d_series/strategy.py` 与 `tests/drcom_core/protocols/d_series/packets.py` 等。
-- 统一测试收集配置：`pyproject.toml` 中启用 `python_files = ["*.py"]`。
-- 补齐项目代码注释与文件头路径标识，提升可读性与可维护性。
-- 验证通过：`pytest -q` 共 17 个测试全部通过。
+  * **核心架构从同步 (Sync) 迁移至 异步 (AsyncIO)**
 
-### 发布说明
+      * **`DrcomCore`**: 所有核心方法 (`login`, `start_heartbeat`, `stop`) 均变更为 `async def`，调用时必须使用 `await`。
+      * **`NetworkClient`**: 底层网络库由 `socket` (阻塞式) 替换为 `asyncio.DatagramProtocol` + `asyncio.Queue` (非阻塞式)。
+      * 不再使用 `threading.Thread` 进行心跳保活，改为使用 `asyncio.Task`。
 
-- 本版本不发布到 PyPI；改用内部/私有分发渠道（GitHub Release 附件或内部制品库）。
-- 原因：优先满足内部分发与环境验证需求；后续版本将根据兼容性反馈评估公开发布。
+  * **封包构建接口重构 (`packets.py`)**
 
-### 兼容性
+      * `build_login_packet`: 函数签名已更改。不再接收几十个独立的参数，改为接收 `(config: DrcomConfig, salt: bytes)`，由函数内部从 Config 对象提取参数。
 
-- 保持零运行时依赖；对 Python 3.13 进行验证。
+### ✨ 新增功能 (New Features)
 
-### 已知问题
+  * **超时时间可配置 (`config.py`)**
 
-- 暂无高优先级缺陷报告。
+      * `DrcomConfig` 新增了三个字段，允许用户自定义各阶段的网络超时时间（单位：秒）：
+          * `timeout_challenge` (默认 3.0s)
+          * `timeout_login` (默认 5.0s)
+          * `timeout_keep_alive` (默认 3.0s)
+      * `create_config_from_dict` 已适配这些新字段的加载。
 
-[1.1.0]: https://github.com/CaelestisAstesia/Drcom-Core/releases/tag/v1.1.0
+  * **服务器连通性探测 (`core.py` / `strategy.py`)**
+
+      * 新增 `probe_server(timeout)` API。允许在不触发完整登录流程、不改变状态机的情况下，发送 Challenge 包探测服务器是否在线。
+
+  * **精细化心跳控制 (`core.py`)**
+
+      * 新增 `step()` API。允许外部 Event Loop（如守护进程）精细控制单次心跳步进，适用于需要手动调度心跳的场景。
+
+  * **事件监听系统增强 (`core.py`)**
+
+      * 新增 `add_listener(callback)` 和 `remove_listener(callback)` 方法。
+      * 支持注册多个状态回调函数，且回调函数同时支持 `sync` 和 `async` 定义。
+
+### 🛡️ 安全与稳定性 (Security & Stability)
+
+  * **随机数生成升级 (`packets.py`)**
+
+      * 将不安全的 `random` 模块替换为加密安全的 `secrets` 模块 (`secrets.randbelow`, `secrets.token_bytes`)，用于生成 Challenge Seed 和随机填充位。
+
+  * **网络层健壮性 (`network.py`)**
+
+      * 实现了 `asyncio.DatagramProtocol`，增加了接收队列 (`maxsize=128`) 防止数据积压。
+      * 实现了 `__aenter__` / `__aexit__` 上下文管理器，支持 `async with` 语法自动管理连接生命周期。
+
+### 📦 模块暴露优化 (`__init__.py`)
+
+  * 现在直接从顶级包 `drcom_core` 暴露了更多辅助工具和异常类，方便开发者调用：
+      * `create_config_from_dict`
+      * `load_config_from_env`
+      * `load_config_from_toml`
+      * `AuthError`, `NetworkError` 等所有异常类。
+
+---
+
+Version 1.0.0
+
+正式版发布
